@@ -149,4 +149,24 @@ public class OrdersController(IMediator mediator) : ControllerBase
         var result = await _mediator.Send(query);
         return Ok(result);
     }
+
+    /// <summary>
+    /// Gets shop revenue statistics based on paid orders for administrators.
+    /// </summary>
+    /// <remarks>
+    /// LUẬT NGHIỆP VỤ &amp; TỐI ƯU HÓA: 
+    /// 1. Chỉ có Admin mới được phép truy cập.
+    /// 2. Thống kê dựa trên các đơn hàng đã thanh toán (PaymentStatus = Paid).
+    /// 3. Sử dụng cơ chế Projection để tối ưu hóa hiệu năng, tránh tải toàn bộ thực thể.
+    /// </remarks>
+    /// <param name="query">The query parameters including date range and grouping option.</param>
+    /// <returns>The revenue statistics.</returns>
+    [HttpGet("revenue")]
+    [Authorize(Roles = RoleConstants.Admin)]
+    public async Task<IActionResult> GetRevenueStatistics([FromQuery] GetRevenueStatisticsQuery query)
+    {
+        var result = await _mediator.Send(query);
+        return Ok(result);
+    }
 }
+

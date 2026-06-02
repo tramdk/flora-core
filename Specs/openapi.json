@@ -1083,6 +1083,48 @@
         }
       }
     },
+    "/api/v1/Orders/revenue": {
+      "get": {
+        "tags": [
+          "Orders"
+        ],
+        "summary": "Gets shop revenue statistics based on paid orders for administrators.",
+        "description": "LUẬT NGHIỆP VỤ & TỐI ƯU HÓA: \r\n1. Chỉ có Admin mới được phép truy cập.\r\n2. Thống kê dựa trên các đơn hàng đã thanh toán (PaymentStatus = Paid).\r\n3. Sử dụng cơ chế Projection để tối ưu hóa hiệu năng, tránh tải toàn bộ thực thể.",
+        "parameters": [
+          {
+            "name": "StartDate",
+            "in": "query",
+            "description": "Gets or sets the optional start date to filter orders.",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "EndDate",
+            "in": "query",
+            "description": "Gets or sets the optional end date to filter orders.",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "GroupBy",
+            "in": "query",
+            "description": "Gets or sets the grouping period. Supported values: \"day\", \"month\", \"year\". Default is \"month\".",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/v1/Payments/vnpay-callback": {
       "get": {
         "tags": [

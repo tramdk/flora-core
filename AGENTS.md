@@ -9,12 +9,19 @@
 1. **Đồng bộ & Ưu tiên CodeGraph**: 
    - LUÔN LUÔN chạy lệnh `codegraph sync` ở đầu mỗi phiên làm việc (hoặc sau khi pull code mới về) để đảm bảo bản đồ chỉ mục luôn phản ánh chính xác trạng thái hiện tại của codebase.
    - Luôn luôn sử dụng các tool của MCP Server `codegraph` đầu tiên để tìm kiếm symbol, truy vết mối quan hệ (references/calls) giữa các class/interface nhằm định vị nhanh tệp cần xử lý và tối ưu lượng token sử dụng.
-2. **Đọc tệp Kiểm thử trước**: Dựa vào kết quả từ CodeGraph, sử dụng công cụ đọc file để xem file test tương ứng trong `FloraCore.Tests/` trước khi viết code để hiểu rõ Method Signature và Expected Behavior mong muốn.
+2. **Xác định và tạo Kiểm thử trước (TDD)**:
+   - Dựa vào kết quả từ CodeGraph, sử dụng công cụ đọc file để xem file test tương ứng trong `FloraCore.Tests/` trước khi viết code để hiểu rõ Method Signature và Expected Behavior mong muốn.
+   - Khi phát triển tính năng mới hoặc sửa lỗi, **bắt buộc tạo/viết các kịch bản kiểm thử (Test Cases) mới trước khi viết logic**. Đảm bảo testcase mới được biên dịch và chạy thất bại trước (Red Light).
 3. **Quét tài liệu Skill**: Quét danh sách `<skills>` có sẵn ở đầu phiên làm việc. Nếu phát hiện skill liên quan đến nghiệp vụ hiện tại (ví dụ: `optimizing-ef-core-queries`), bắt buộc đọc tệp `SKILL.md` tương ứng để áp dụng chính xác chỉ dẫn kỹ thuật.
 
 ## Giai đoạn 2: Thiết kế & Viết code (Coding & Design Rules)
-4. **Viết đơn lẻ & Biên dịch ngay**: Chỉ viết hoặc sửa đổi 1 file production `.cs` tại một thời điểm. Ngay sau đó phải chạy lệnh Build ngay (`dotnet build FloraCore.csproj`) để kiểm tra lỗi cú pháp trước khi chuyển sang file tiếp theo.
+4. **Quy trình TDD (Red - Green - Refactor) & Biên dịch ngay**:
+   - **Red**: Chạy `dotnet test --filter <tên_test>` để xác nhận testcase mới tạo chạy thất bại.
+   - **Green**: Chỉ viết hoặc sửa đổi 1 file production `.cs` tại một thời điểm với lượng code tối thiểu để testcase vượt qua thành công. Sau đó chạy ngay lệnh Build (`dotnet build FloraCore.csproj`) để kiểm tra lỗi cú pháp và chạy lại test để xác nhận trạng thái thành công (Green Light).
+   - **Refactor**: Tiến hành tối ưu hóa cấu trúc code sau khi test đã thành công, đảm bảo các kiểm thử vẫn vượt qua sau khi tối ưu.
 5. **Quy định Cốt lõi của Project**: Bắt buộc tuân thủ 100% các tiêu chuẩn thiết kế trong **`CODING_POLICY.md`**, tập trung vào:
+   - *Phạm vi User Story*: Tuyệt đối không được tự ý thêm thắt các tính năng nằm ngoài phạm vi User Story.
+   - *Độ bao phủ Test Case*: Bắt buộc 100% Test Case phải bao gồm cả 3 kịch bản: Happy Path, Edge Case (Dữ liệu biên), và Exception/Fail Path.
    - *Dependency Injection & Primary Constructors*: Sử dụng Primary Constructor của C# 12+ và null check.
    - *CQRS & MediatR*: Command/Query là record bất biến, Handler độc lập có XML comments.
    - *Phân trang & Lọc*: Hỗ trợ phân trang/bộ lọc, sử dụng AsNoTracking cho các truy vấn Read-only.

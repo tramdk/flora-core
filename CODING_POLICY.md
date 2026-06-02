@@ -6,6 +6,7 @@
 ## 🛡️ 1. Nguyên Tắc Cốt Lõi (Core Principles)
 *   **Clean Code & SOLID:** Code phải tự giải thích (self-explanatory), phương thức ngắn gọn tập trung vào một nhiệm vụ (Single Responsibility).
 *   **Surgical Changes (Thay đổi phẫu thuật):** Chỉ sửa đổi chính xác những dòng code cần thiết. Không tự ý định dạng lại hoặc tái cấu trúc (refactor) code xung quanh đang chạy ổn định.
+*   **Phạm vi tối giản (Strict Scope):** Tuyệt đối không được tự ý thêm thắt các tính năng nằm ngoài phạm vi User Story.
 *   **Goal-Driven (Định hướng mục tiêu):** Xác định tiêu chí thành công rõ ràng trước khi code. Chạy kiểm thử tự động lặp lại liên tục cho đến khi thành công.
 *   **An Toàn & Bảo Mật:** Tuyệt đối không hardcode bí mật (secrets). Bất kỳ lỗi bảo mật nào đều không được chấp nhận.
 
@@ -132,6 +133,7 @@ Mỗi khi nhận một yêu cầu phát triển tính năng mới, AI Agent ph�
 ---
 
 ## 🧪 5. Tiêu Chuẩn Kiểm Thử (Testing Standards)
+*   **Quy tắc 3 Kịch bản Bắt buộc:** Bắt buộc 100% Test Case phải bao gồm cả 3 kịch bản: Happy Path, Edge Case (Dữ liệu biên), và Exception/Fail Path.
 *   **Unit & Integration Tests:** Mọi logic nghiệp vụ trong Application layer phải có Unit Test bao phủ đầy đủ cả kịch bản thành công và thất bại.
 *   **Khung kiểm thử:** Sử dụng khung kiểm thử xUnit kết hợp cùng thư viện `FluentAssertions` cho các biểu thức khẳng định (assertions).
 *   **AAA Pattern:** Từng test case bắt buộc phân chia 3 phân đoạn rõ ràng bằng comment: `// Arrange`, `// Act`, `// Assert`.
