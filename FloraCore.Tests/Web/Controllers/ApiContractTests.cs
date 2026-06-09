@@ -50,8 +50,6 @@ public class ApiContractTests : IClassFixture<CustomWebApplicationFactory>
         var liveFormatted = JsonSerializer.Serialize(liveDoc, new JsonSerializerOptions { WriteIndented = true });
         var committedFormatted = JsonSerializer.Serialize(committedDoc, new JsonSerializerOptions { WriteIndented = true });
 
-        liveFormatted.Should().Be(committedFormatted, 
-            "The live API contract has diverged from the committed Specs/openapi.json contract. " +
-            "If this change was intentional, please overwrite Specs/openapi.json with the live schema.");
+        Assert.Equal(committedFormatted, liveFormatted);
     }
 }

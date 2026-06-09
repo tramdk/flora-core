@@ -1,6 +1,7 @@
 using FloraCore.Application.Features.Posts.Queries;
 using FloraCore.Application.Features.Posts.Commands;
 using FloraCore.Application.Features.Posts.DTOs;
+using FloraCore.Application.Interfaces;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -44,6 +45,7 @@ public class PostsController(IMediator mediator) : ControllerBase
     /// <param name="sortDescending">Whether to sort in descending order.</param>
     /// <param name="page">The page number for pagination.</param>
     /// <param name="pageSize">The number of items per page.</param>
+    /// <param name="includeUnapproved">Whether to include unapproved posts (admin only).</param>
     /// <returns>Search results.</returns>
     [HttpGet("search")]
     [HttpGet("unified")] // For backward compatibility
@@ -57,8 +59,10 @@ public class PostsController(IMediator mediator) : ControllerBase
         [FromQuery] string? sortBy = null,
         [FromQuery] bool? sortDescending = null,
         [FromQuery] int? page = null,
-        [FromQuery] int pageSize = 10)
+        [FromQuery] int pageSize = 10,
+        [FromQuery] bool? includeUnapproved = null)
     {
+        var isAdmin = User.Identity?.IsAuthenticated == true && User.IsInRole("Admin");
         var request = new UnifiedSearchRequest
         {
             SearchTerm = searchTerm,
@@ -69,7 +73,8 @@ public class PostsController(IMediator mediator) : ControllerBase
             SortBy = sortBy,
             SortDescending = sortDescending,
             Page = page,
-            PageSize = pageSize > 0 ? pageSize : 10
+            PageSize = pageSize > 0 ? pageSize : 10,
+            IncludeUnapproved = isAdmin ? includeUnapproved : null
         };
 
         var query = new UnifiedSearchPostsQuery(request);
@@ -89,6 +94,12 @@ public class PostsController(IMediator mediator) : ControllerBase
     {
         if (request == null)
             return BadRequest();
+
+        var isAdmin = User.Identity?.IsAuthenticated == true && User.IsInRole("Admin");
+        if (!isAdmin)
+        {
+            request.IncludeUnapproved = null; // Enforce security filter for non-admins
+        }
 
         var query = new UnifiedSearchPostsQuery(request);
         var result = await _mediator.Send(query);
@@ -163,5 +174,37 @@ public class PostsController(IMediator mediator) : ControllerBase
     {
         var result = await _mediator.Send(new DeletePostCommand(id));
         return result ? NoContent() : NotFound();
+    }
+
+    /// <summary>
+    /// Crawls blog posts from Fanpage-AI-Manager.
+    /// </summary>
+    [HttpPost("crawl-external")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> TriggerCrawl(
+        [FromQuery] string categoryId,
+        [FromQuery] string? topicId = null,
+        [FromQuery] string? status = "published",
+        [FromQuery] int limit = 20,
+        [FromServices] IPostCrawlerService crawlerService = null!)
+    {
+        if (string.IsNullOrEmpty(categoryId))
+        {
+            return BadRequest("CategoryId is required to categorize the crawled posts.");
+        }
+
+        var count = await crawlerService.CrawlAndSavePostsAsync(categoryId, topicId, status, limit);
+        return Ok(new { Message = $"Cào thành công và đã thêm mới {count} bài viết ở trạng thái chờ duyệt." });
+    }
+
+    /// <summary>
+    /// Approves an unapproved blog post.
+    /// </summary>
+    [HttpPost("{id}/approve")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> Approve(Guid id)
+    {
+        var result = await _mediator.Send(new ApprovePostCommand(id));
+        return result ? Ok(new { Message = "Post approved successfully." }) : NotFound();
     }
 }

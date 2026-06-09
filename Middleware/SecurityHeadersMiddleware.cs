@@ -9,21 +9,10 @@ namespace FloraCore.Middleware;
 /// <summary>
 /// Middleware to add security headers to HTTP responses.
 /// </summary>
-public class SecurityHeadersMiddleware
+public class SecurityHeadersMiddleware(RequestDelegate next, SecurityHeadersOptions options)
 {
-    private readonly RequestDelegate _next;
-    private readonly SecurityHeadersOptions _options;
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="SecurityHeadersMiddleware"/> class.
-    /// </summary>
-    /// <param name="next">The next request delegate.</param>
-    /// <param name="options">The security headers options.</param>
-    public SecurityHeadersMiddleware(RequestDelegate next, SecurityHeadersOptions options)
-    {
-        _next = next ?? throw new ArgumentNullException(nameof(next));
-        _options = options ?? throw new ArgumentNullException(nameof(options));
-    }
+    private readonly RequestDelegate _next = next ?? throw new ArgumentNullException(nameof(next));
+    private readonly SecurityHeadersOptions _options = options ?? throw new ArgumentNullException(nameof(options));
 
     /// <summary>
     /// Invokes the middleware.

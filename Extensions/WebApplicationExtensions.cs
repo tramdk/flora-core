@@ -1,14 +1,14 @@
 using System.Text.Json;
+using AspNetCoreRateLimit;
+using FloraCore.Application.Common.Constants;
+using FloraCore.Middleware;
+using Hangfire;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Serilog;
-using Hangfire;
 using Scalar.AspNetCore;
-using FloraCore.Middleware;
-using FloraCore.Application.Common.Constants;
-using AspNetCoreRateLimit;
+using Serilog;
 
 namespace FloraCore.Extensions;
 
@@ -22,13 +22,26 @@ public static class WebApplicationExtensions
     /// </summary>
     public static WebApplication UseAppMiddlewares(this WebApplication app)
     {
+        // 1. Exception handling phải đứng đầu tiên để bắt mọi exception từ tất cả middleware bên dưới
         app.UseMiddleware<ExceptionHandlingMiddleware>();
-        app.UseRouting();
-        app.UseCors(CorsConstants.AllowFrontend);
-
-        app.UseSecurityHeaders(); // Use SecurityHeaders middleware with configuration registered in DI
+        // 2. Response Compression đứng sớm, trước StaticFiles để nén được cả file tĩnh
         app.UseResponseCompression();
+        // 3. Rate Limiting đứng ngay sau exception handler, bảo vệ toàn bộ pipeline kể cả static files
+        if (!app.Environment.IsEnvironment("Testing"))
+        {
+            app.UseIpRateLimiting();
+        }
+        // 4. Security Headers gắn vào mọi response, bao gồm cả file tĩnh
+        app.UseSecurityHeaders();
+        // 5. Serilog logging sớm để ghi log đầy đủ cho tất cả request
         app.UseSerilogRequestLogging();
+        // 6. Static files (phải sau Compression và SecurityHeaders)
+        app.UseDefaultFiles();
+        app.UseStaticFiles();
+        // 7. Routing
+        app.UseRouting();
+        // 8. CORS phải sau UseRouting và trước UseAuthentication (yêu cầu của ASP.NET Core)
+        app.UseCors(CorsConstants.AllowFrontend);
 
         // Custom Health Checks Endpoint
         app.UseHealthChecks("/health", new HealthCheckOptions
@@ -56,15 +69,10 @@ public static class WebApplicationExtensions
         app.UseSwagger(options => options.RouteTemplate = "openapi/{documentName}.json");
         app.MapScalarApiReference(options =>
         {
-            options.WithTitle("Blog API v1")
+            options.WithTitle("Flora Core API v1")
                    .WithTheme(ScalarTheme.Moon)
                    .WithDefaultHttpClient(ScalarTarget.CSharp, ScalarClient.HttpClient);
         });
-
-        if (!app.Environment.IsEnvironment("Testing"))
-        {
-            app.UseIpRateLimiting();
-        }
 
         app.UseAuthentication();
         app.UseMiddleware<TokenBlacklistMiddleware>();

@@ -107,6 +107,10 @@ public static class DependencyInjection
         services.AddScoped<IInboxService, InboxService>();
         services.AddScoped<IEmailService, EmailService>();
 
+        // Crawler Service Registration
+        services.Configure<FanpageAiManagerSettings>(configuration.GetSection("FanpageAiManagerSettings"));
+        services.AddHttpClient<IPostCrawlerService, PostCrawlerService>();
+
         // Configure JwtSettings
         services.Configure<JwtSettings>(configuration.GetSection("Jwt"));
 

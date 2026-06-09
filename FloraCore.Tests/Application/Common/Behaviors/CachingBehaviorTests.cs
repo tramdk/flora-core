@@ -29,7 +29,7 @@ public class CachingBehaviorTests
     public void Constructor_WithNullHybridCache_ShouldThrowArgumentNullException()
     {
         // Act
-        Action act = () => new CachingBehavior<TestRequest, Unit>(null, _mockLogger.Object);
+        Action act = () => _ = new CachingBehavior<TestRequest, Unit>(null, _mockLogger.Object);
 
         // Assert
         act.Should().Throw<ArgumentNullException>()
@@ -40,7 +40,7 @@ public class CachingBehaviorTests
     public void Constructor_WithNullLogger_ShouldThrowArgumentNullException()
     {
         // Act
-        Action act = () => new CachingBehavior<TestRequest, Unit>(_mockCache.Object, null);
+        Action act = () => _ = new CachingBehavior<TestRequest, Unit>(_mockCache.Object, null);
 
         // Assert
         act.Should().Throw<ArgumentNullException>()

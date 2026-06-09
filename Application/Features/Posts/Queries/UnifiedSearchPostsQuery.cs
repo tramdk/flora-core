@@ -22,17 +22,12 @@ namespace FloraCore.Application.Features.Posts.Queries;
 public record UnifiedSearchPostsQuery(UnifiedSearchRequest Request) 
     : IRequest<PagedResult<PostDto>>;
 
-public class UnifiedSearchPostsHandler 
+public class UnifiedSearchPostsHandler(IGenericRepository<Post, Guid> repository, IMapper mapper) 
     : IRequestHandler<UnifiedSearchPostsQuery, PagedResult<PostDto>>
 {
-    private readonly IGenericRepository<Post, Guid> _repository;
-    private readonly IMapper _mapper;
-
-    public UnifiedSearchPostsHandler(IGenericRepository<Post, Guid> repository, IMapper mapper)
-    {
-        _repository = repository;
-        _mapper = mapper;
-    }
+    private readonly IGenericRepository<Post, Guid> _repository = repository ?? throw new ArgumentNullException(nameof(repository));
+    private readonly IMapper _mapper = mapper ?? throw new ArgumentNullException(nameof(mapper));
+    
     
     public async Task<PagedResult<PostDto>> Handle(
         UnifiedSearchPostsQuery request, 
@@ -60,6 +55,13 @@ public class UnifiedSearchPostsHandler
         {
             // Use simple search approach
             filter = BuildSimpleFilter(searchRequest);
+        }
+
+        // If IncludeUnapproved is not set to true, only return approved posts
+        if (searchRequest.IncludeUnapproved != true)
+        {
+            Expression<Func<Post, bool>> approvedFilter = p => p.IsApproved;
+            filter = filter == null ? approvedFilter : filter.And(approvedFilter);
         }
         
         // Build query options

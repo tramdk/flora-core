@@ -98,16 +98,16 @@ public class GenericRepository<TEntity, TKey>(AppDbContext context) : IGenericRe
     /// <inheritdoc />
     public virtual void StageDelete(TKey id)
     {
-        var entity = _dbSet.Local.Cast<object>().FirstOrDefault(e => {
+        if (_dbSet.Local.Cast<object>().FirstOrDefault(e => {
             var entry = _context.Entry(e);
-            var key = entry.Metadata.FindPrimaryKey()?.Properties.FirstOrDefault();
+            var properties = entry.Metadata.FindPrimaryKey()?.Properties;
+            var key = properties is { Count: > 0 } ? properties[0] : null;
             return key != null && entry.Property(key.Name).CurrentValue!.Equals(id);
-        }) as TEntity;
-
-        if (entity == null)
+        }) is not TEntity entity)
         {
             entity = Activator.CreateInstance<TEntity>();
-            var key = _context.Model.FindEntityType(typeof(TEntity))?.FindPrimaryKey()?.Properties.FirstOrDefault();
+            var properties = _context.Model.FindEntityType(typeof(TEntity))?.FindPrimaryKey()?.Properties;
+            var key = properties is { Count: > 0 } ? properties[0] : null;
             if (key != null)
             {
                 _context.Entry(entity).Property(key.Name).CurrentValue = id!;

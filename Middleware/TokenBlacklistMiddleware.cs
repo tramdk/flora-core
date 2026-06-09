@@ -10,21 +10,10 @@ namespace FloraCore.Middleware;
 /// <summary>
 /// Middleware to check if a token is blacklisted.
 /// </summary>
-public class TokenBlacklistMiddleware
+public class TokenBlacklistMiddleware(RequestDelegate next, ILogger<TokenBlacklistMiddleware> logger)
 {
-    private readonly RequestDelegate _next;
-    private readonly ILogger<TokenBlacklistMiddleware> _logger;
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="TokenBlacklistMiddleware"/> class.
-    /// </summary>
-    /// <param name="next">The next request delegate.</param>
-    /// <param name="logger">The logger.</param>
-    public TokenBlacklistMiddleware(RequestDelegate next, ILogger<TokenBlacklistMiddleware> logger)
-    {
-        _next = next ?? throw new ArgumentNullException(nameof(next));
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-    }
+    private readonly RequestDelegate _next = next ?? throw new ArgumentNullException(nameof(next));
+    private readonly ILogger<TokenBlacklistMiddleware> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
     /// <summary>
     /// Invokes the middleware.
@@ -33,7 +22,7 @@ public class TokenBlacklistMiddleware
     /// <param name="blacklistService">The token blacklist service.</param>
     public async Task InvokeAsync(HttpContext context, ITokenBlacklistService blacklistService)
     {
-        var token = context.Request.Headers["Authorization"].ToString().Replace("Bearer ", "");
+        var token = context.Request.Headers.Authorization.ToString().Replace("Bearer ", "");
 
         if (!string.IsNullOrEmpty(token))
         {

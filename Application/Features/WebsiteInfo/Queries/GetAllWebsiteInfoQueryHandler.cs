@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using FloraCore.Application.Common.Models;
 using FloraCore.Application.Interfaces;
 using FloraCore.Domain.Entities;
 using MediatR;
@@ -13,6 +14,10 @@ public class GetAllWebsiteInfoQueryHandler(IWebsiteInfoRepository repository) : 
 
     public async Task<IEnumerable<FloraCore.Domain.Entities.WebsiteInfo>> Handle(GetAllWebsiteInfoQuery request, CancellationToken cancellationToken)
     {
-        return await _repository.GetAllAsync();
+        var options = new QueryOptionsBuilder<FloraCore.Domain.Entities.WebsiteInfo>()
+            .AsNoTracking()
+            .Build();
+
+        return await _repository.GetWithOptionsAsync(options);
     }
 }

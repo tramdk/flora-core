@@ -32,7 +32,7 @@ public class AuthorizationBehaviorTests
     public void Constructor_WithNullCurrentUserService_ShouldThrowArgumentNullException()
     {
         // Act
-        Action act = () => new AuthorizationBehavior<TestRequest, Unit>(null, _mockPostRepository.Object, _mockResourceManager.Object);
+        Action act = () => _ = new AuthorizationBehavior<TestRequest, Unit>(null, _mockPostRepository.Object, _mockResourceManager.Object);
 
         // Assert
         act.Should().Throw<ArgumentNullException>()
@@ -43,7 +43,7 @@ public class AuthorizationBehaviorTests
     public void Constructor_WithNullPostRepository_ShouldThrowArgumentNullException()
     {
         // Act
-        Action act = () => new AuthorizationBehavior<TestRequest, Unit>(_mockCurrentUserService.Object, null, _mockResourceManager.Object);
+        Action act = () => _ = new AuthorizationBehavior<TestRequest, Unit>(_mockCurrentUserService.Object, null, _mockResourceManager.Object);
 
         // Assert
         act.Should().Throw<ArgumentNullException>()
@@ -54,7 +54,7 @@ public class AuthorizationBehaviorTests
     public void Constructor_WithNullResourceManager_ShouldThrowArgumentNullException()
     {
         // Act
-        Action act = () => new AuthorizationBehavior<TestRequest, Unit>(_mockCurrentUserService.Object, _mockPostRepository.Object, null);
+        Action act = () => _ = new AuthorizationBehavior<TestRequest, Unit>(_mockCurrentUserService.Object, _mockPostRepository.Object, null);
 
         // Assert
         act.Should().Throw<ArgumentNullException>()

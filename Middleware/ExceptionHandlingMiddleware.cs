@@ -46,6 +46,11 @@ public class ExceptionHandlingMiddleware
         }
     }
 
+    private static readonly JsonSerializerOptions SerializerOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+
     private async Task HandleExceptionAsync(HttpContext context, Exception exception)
     {
         context.Response.ContentType = "application/problem+json";
@@ -136,9 +141,6 @@ public class ExceptionHandlingMiddleware
         }
 
         context.Response.StatusCode = statusCode;
-        await context.Response.WriteAsync(JsonSerializer.Serialize(problemDetails, new JsonSerializerOptions
-        {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-        }));
+        await context.Response.WriteAsync(JsonSerializer.Serialize(problemDetails, SerializerOptions));
     }
 }

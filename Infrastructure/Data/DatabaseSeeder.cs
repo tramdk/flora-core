@@ -11,21 +11,14 @@ namespace FloraCore.Infrastructure.Data;
 /// Database seeding service to initialize default data.
 /// Separates seeding logic from Program.cs for better maintainability.
 /// </summary>
-public class DatabaseSeeder
+public class DatabaseSeeder(
+    AppDbContext context,
+    RoleManager<IdentityRole<Guid>> roleManager,
+    UserManager<AppUser> userManager)
 {
-    private readonly AppDbContext _context;
-    private readonly RoleManager<IdentityRole<Guid>> _roleManager;
-    private readonly UserManager<AppUser> _userManager;
-
-    public DatabaseSeeder(
-        AppDbContext context,
-        RoleManager<IdentityRole<Guid>> roleManager,
-        UserManager<AppUser> userManager)
-    {
-        _context = context;
-        _roleManager = roleManager;
-        _userManager = userManager;
-    }
+    private readonly AppDbContext _context = context ?? throw new ArgumentNullException(nameof(context));
+    private readonly RoleManager<IdentityRole<Guid>> _roleManager = roleManager ?? throw new ArgumentNullException(nameof(roleManager));
+    private readonly UserManager<AppUser> _userManager = userManager ?? throw new ArgumentNullException(nameof(userManager));
 
     /// <summary>
     /// Ensure the database schema matches the model (Create tables).
@@ -126,7 +119,7 @@ public class DatabaseSeeder
         {
             _context.Products.AddRange(new List<Product>
             {
-                new Product
+                new()
                 {
                     Id = Uuid.NewDatabaseFriendly(Database.PostgreSql),
                     Name = "Bó Hoa Hồng Red Naomi",
@@ -136,7 +129,7 @@ public class DatabaseSeeder
                     CreatedAt = DateTime.UtcNow,
                     CategoryId = bouquetCategory.Id
                 },
-                new Product
+                new()
                 {
                     Id = Uuid.NewDatabaseFriendly(Database.PostgreSql),
                     Name = "Giỏ Hoa Hướng Dương Nắng Mai",
@@ -146,7 +139,7 @@ public class DatabaseSeeder
                     CreatedAt = DateTime.UtcNow,
                     CategoryId = basketCategory.Id
                 },
-                new Product
+                new()
                 {
                     Id = Uuid.NewDatabaseFriendly(Database.PostgreSql),
                     Name = "Bó Hoa Cúc Tự Nhiên",
@@ -165,7 +158,7 @@ public class DatabaseSeeder
     {
         _context.Products.AddRange(new List<Product>
         {
-            new Product
+            new()
             {
                 Id = Uuid.NewDatabaseFriendly(Database.PostgreSql),
                 Name = "Hoa Hồng Đà Lạt (Bó mẫu)",
@@ -229,7 +222,7 @@ public class DatabaseSeeder
 
         _context.Posts.AddRange(new List<Post>
         {
-            new Post
+            new()
             {
                 Id = Uuid.NewDatabaseFriendly(Database.PostgreSql),
                 Title = "Cách giữ hoa tươi lâu tại nhà",
@@ -238,7 +231,7 @@ public class DatabaseSeeder
                 CreatedAt = DateTime.UtcNow,
                 CategoryId = "blog"
             },
-            new Post
+            new()
             {
                 Id = Uuid.NewDatabaseFriendly(Database.PostgreSql),
                 Title = "Ý nghĩa của các loài hoa trong tình yêu",
@@ -247,7 +240,7 @@ public class DatabaseSeeder
                 CreatedAt = DateTime.UtcNow,
                 CategoryId = "blog"
             },
-            new Post
+            new()
             {
                 Id = Uuid.NewDatabaseFriendly(Database.PostgreSql),
                 Title = "Xu hướng chọn hoa cưới năm 2026",

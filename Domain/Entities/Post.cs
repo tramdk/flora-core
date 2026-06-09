@@ -15,6 +15,7 @@ public class Post
     public PostCategory? Category { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
+    public bool IsApproved { get; set; } = true;
 
     public void AddRating(int score)
     {

@@ -69,6 +69,11 @@ public class UnifiedSearchRequest
     public int? Page { get; set; }
     
     /// <summary>
+    /// Whether to include unapproved posts in results.
+    /// </summary>
+    public bool? IncludeUnapproved { get; set; }
+
+    /// <summary>
     /// Number of items per page
     /// </summary>
     public int PageSize { get; set; } = 10;

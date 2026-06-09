@@ -1,11 +1,11 @@
-using FloraCore.Application.Common.Interfaces;
-using FloraCore.Domain.Entities;
-using MediatR;
 using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using FloraCore.Application.Common.Interfaces;
 using FloraCore.Application.Interfaces;
+using FloraCore.Domain.Entities;
+using MediatR;
 
 namespace FloraCore.Application.Features.Orders.Commands;
 
@@ -30,7 +30,7 @@ public class RemoveOrderItemCommandHandler : IRequestHandler<RemoveOrderItemComm
         if (orderItem == null) return false;
 
         order.TotalAmount -= orderItem.Price * orderItem.Quantity;
-        _repository.UpdateAsync(order);
+        await _repository.UpdateAsync(order);
         await _repository.DeleteOrderItemAsync(orderItem);
         return true;
     }

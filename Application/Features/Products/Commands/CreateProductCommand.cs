@@ -1,17 +1,15 @@
-using FloraCore.Domain.Entities;
-using FloraCore.Application.Common.Interfaces;
-using MediatR;
-using UUIDNext;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using FloraCore.Application.Common.Interfaces;
+using FloraCore.Domain.Entities;
+using MediatR;
+using UUIDNext;
 
 namespace FloraCore.Application.Features.Products.Commands;
 
-public record CreateProductCommand(Guid? Id, string Name, string Description, decimal Price, /// <summary>
-    /// The promotion rate of the product.
-    /// </summary>
-		decimal PromotionRate, int Stock, string? ImageUrl, Guid? CategoryId) : IRequest<Guid>;
+public record CreateProductCommand(Guid? Id, string Name, string Description, decimal Price,
+        decimal PromotionRate, int Stock, string? ImageUrl, Guid? CategoryId) : IRequest<Guid>;
 
 public class CreateProductCommandHandler(IGenericRepository<Product, Guid> productRepository) : IRequestHandler<CreateProductCommand, Guid>
 {

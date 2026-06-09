@@ -90,7 +90,8 @@ public class UpdateProductCommandHandlerTests
         var act = () => _handler.Handle(command, CancellationToken.None);
 
         // Assert
-        await act.Should().ThrowAsync<Exception>().WithMessage("Product not found");
+        await act.Should().ThrowAsync<FloraCore.Domain.Exceptions.ProductNotFoundException>()
+            .WithMessage($"Product with ID '{productId}' was not found.");
         _mockProductRepository.Verify(x => x.UpdateAsync(It.IsAny<Product>()), Times.Never);
     }
 }

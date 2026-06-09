@@ -138,6 +138,13 @@ public static class ServiceCollectionExtensions
 
         services.AddAutoMapper(cfg => {}, typeof(Program).Assembly);
 
+        // Register all IVerifiableComponent implementations
+        var verifiableTypes = typeof(IVerifiableComponent).Assembly.GetTypes()
+            .Where(t => typeof(IVerifiableComponent).IsAssignableFrom(t) && !t.IsInterface && !t.IsAbstract);
+        foreach (var type in verifiableTypes)
+        {
+            services.AddScoped(typeof(IVerifiableComponent), type);
+        }
 
         return services;
     }
