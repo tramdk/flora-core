@@ -22,17 +22,11 @@ public abstract class DomainException : Exception
 /// <summary>
 /// Exception thrown when an entity is not found.
 /// </summary>
-public class EntityNotFoundException : DomainException
+public class EntityNotFoundException(string entityType, object entityId)
+    : DomainException("ENTITY_NOT_FOUND", $"{entityType} with ID '{entityId}' was not found.")
 {
-    public string EntityType { get; }
-    public object EntityId { get; }
-
-    public EntityNotFoundException(string entityType, object entityId)
-        : base("ENTITY_NOT_FOUND", $"{entityType} with ID '{entityId}' was not found.")
-    {
-        EntityType = entityType;
-        EntityId = entityId;
-    }
+    public string EntityType { get; } = entityType ?? throw new ArgumentNullException(nameof(entityType));
+    public object EntityId { get; } = entityId ?? throw new ArgumentNullException(nameof(entityId));
 
     public static EntityNotFoundException For<T>(object id) => new(typeof(T).Name, id);
 }

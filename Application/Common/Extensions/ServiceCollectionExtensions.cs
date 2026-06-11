@@ -124,11 +124,11 @@ public static class ServiceCollectionExtensions
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUserService, CurrentUserService>();
         services.AddSingleton<IResourceManager, ResourceService>();
-        services.AddValidatorsFromAssemblyContaining<Program>();
+        services.AddValidatorsFromAssemblyContaining<CurrentUserService>();
 
         services.AddMediatR(cfg =>
         {
-            cfg.RegisterServicesFromAssemblyContaining<Program>();
+            cfg.RegisterServicesFromAssemblyContaining<CurrentUserService>();
             cfg.AddBehavior(typeof(IPipelineBehavior<,>), typeof(LoggingBehavior<,>));
             cfg.AddBehavior(typeof(IPipelineBehavior<,>), typeof(IdempotencyBehavior<,>));
             cfg.AddBehavior(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
@@ -136,7 +136,7 @@ public static class ServiceCollectionExtensions
             cfg.AddBehavior(typeof(IPipelineBehavior<,>), typeof(CachingBehavior<,>));
         });
 
-        services.AddAutoMapper(cfg => {}, typeof(Program).Assembly);
+        services.AddAutoMapper(cfg => {}, typeof(CurrentUserService).Assembly);
 
         // Register all IVerifiableComponent implementations
         var verifiableTypes = typeof(IVerifiableComponent).Assembly.GetTypes()
@@ -244,11 +244,16 @@ public static class ServiceCollectionExtensions
             });
 
             // XML Documentation
-            var xmlFile = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
-            var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
-            if (File.Exists(xmlPath))
+            var assemblies = AppDomain.CurrentDomain.GetAssemblies()
+                .Where(a => a.GetName().Name?.StartsWith("FloraCore") == true);
+            foreach (var assembly in assemblies)
             {
-                options.IncludeXmlComments(xmlPath);
+                var xmlFile = $"{assembly.GetName().Name}.xml";
+                var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+                if (File.Exists(xmlPath))
+                {
+                    options.IncludeXmlComments(xmlPath);
+                }
             }
         });
 
