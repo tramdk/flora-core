@@ -82,7 +82,7 @@ public class CodingPolicyTests
             }
 
             // Chỉ quét các file DI nằm trong số những file đang được sửa đổi hoặc thêm mới (để tránh lỗi legacy code)
-            if (modifiedFiles.Count > 0 && !modifiedFiles.Contains(file))
+            if (modifiedFiles.Count == 0 || !modifiedFiles.Contains(file))
             {
                 continue;
             }
