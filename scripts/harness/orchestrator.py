@@ -1094,6 +1094,64 @@ class AIDeveloperHarness:
         print(f"⚠️ [Harness Alert]: Agent {role} đạt giới hạn lặp tối đa.")
         return ""
 
+    def classify_risk(self, task_description: str) -> str:
+        """Phân loại rủi ro tác vụ theo FEATURE_INTAKE.md: tiny, normal, high-risk."""
+        task_lower = task_description.lower()
+        
+        # High-risk indicators
+        high_risk_keywords = [
+            "migration", "database", "schema", "auth", "authentication", "payment",
+            "security", "deploy", "docker", "k8s", "kubernetes", "upgrade",
+            "breaking change", "nâng cấp", "thanh toán", "bảo mật", "cơ sở dữ liệu"
+        ]
+        if any(kw in task_lower for kw in high_risk_keywords):
+            return "high-risk"
+        
+        # Tiny indicators
+        tiny_keywords = [
+            "typo", "comment", "rename", "format", "sửa lỗi chính tả",
+            "thêm comment", "đổi tên", "refactor nhỏ", "fix typo", "căn chỉnh",
+            "cleanup", "dọn dẹp", "xóa code thừa", "remove unused"
+        ]
+        if any(kw in task_lower for kw in tiny_keywords):
+            return "tiny"
+        
+        return "normal"
+
+    def update_test_matrix(self, task_description: str, test_files: list[str]):
+        """Tự động cập nhật TEST_MATRIX.md với các behaviors mới đã kiểm thử."""
+        harness_dir = os.path.dirname(os.path.abspath(__file__))
+        scripts_dir = os.path.dirname(harness_dir)
+        root_dir = os.path.dirname(scripts_dir)
+        matrix_path = os.path.join(root_dir, "docs", "TEST_MATRIX.md")
+        
+        if not os.path.exists(matrix_path) or not test_files:
+            return
+        
+        try:
+            with open(matrix_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            
+            # Tạo entry mới cho mỗi test file
+            new_entries = []
+            for tf in test_files:
+                # Trích xuất feature name từ đường dẫn test file
+                basename = os.path.basename(tf).replace("Tests.cs", "").replace("Test.cs", "")
+                # Kiểm tra xem behavior đã tồn tại trong matrix chưa
+                if basename.lower() not in content.lower():
+                    new_entries.append(
+                        f"| {basename} | {task_description[:50]} | Unit | — | — | implemented |"
+                    )
+            
+            if new_entries:
+                # Append vào cuối bảng matrix
+                append_text = "\n".join(new_entries) + "\n"
+                with open(matrix_path, "a", encoding="utf-8") as f:
+                    f.write(append_text)
+                print(f"📊 [Harness]: Đã cập nhật TEST_MATRIX.md với {len(new_entries)} behavior(s) mới.")
+        except Exception as e:
+            print(f"⚠️ [Harness]: Lỗi cập nhật TEST_MATRIX.md: {e}")
+
     def execute_pipeline(self, task_description: str, skip_enricher: bool = False):
         """Thực thi toàn bộ quy trình: Lập Plan -> Viết Test -> Lập trình -> Đánh giá đối nghịch."""
         print(f"\n=============================================================")
@@ -1126,6 +1184,37 @@ class AIDeveloperHarness:
                 print(f"📖 [Harness Control]: Đang nạp AGENTS.md rulebook...")
             except Exception as e:
                 print(f"⚠️ [Harness Control]: Lỗi đọc AGENTS.md: {e}")
+
+        # 1c. Feature Intake Gate — Phân loại rủi ro trước khi chạy pipeline
+        risk_lane = self.classify_risk(task_description)
+        print(f"\n🚦 [Feature Intake Gate]: Phân loại rủi ro → {risk_lane.upper()}")
+        
+        if risk_lane == "tiny":
+            print("⚡ [Intake]: Tác vụ Tiny — bỏ qua Enricher & Planner, chạy trực tiếp Developer.")
+            skip_enricher = True
+            # Giảm budget cho tiny tasks để tiết kiệm token
+            self.role_max_iterations["Planner"] = 3
+            self.role_max_iterations["TestWriter"] = 5
+            self.role_max_iterations["Developer"] = 15
+        elif risk_lane == "high-risk":
+            print("🔴 [Intake]: Tác vụ High-Risk — yêu cầu phê duyệt kế hoạch bắt buộc.")
+            # Tăng budget cho high-risk tasks
+            self.role_max_iterations["Planner"] = 12
+            self.role_max_iterations["Developer"] = 50
+            self.auto_approve = False  # Bắt buộc phê duyệt thủ công
+        else:
+            print("🟡 [Intake]: Tác vụ Normal — chạy pipeline chuẩn.")
+        
+        # 1d. Nạp nội dung CONTEXT_RULES.md để inject vào context nếu risk >= normal
+        context_rules_content = ""
+        context_rules_path = os.path.join(root_dir, "docs", "CONTEXT_RULES.md")
+        if risk_lane != "tiny" and os.path.exists(context_rules_path):
+            try:
+                with open(context_rules_path, "r", encoding="utf-8") as f:
+                    context_rules_content = f.read().strip()
+                print(f"📖 [Harness Control]: Đang nạp Context Rules cho risk lane '{risk_lane}'...")
+            except Exception as e:
+                print(f"⚠️ [Harness Control]: Lỗi đọc CONTEXT_RULES.md: {e}")
 
         # 2. Xây dựng System Instructions tối ưu hóa token (arXiv:2605.26731)
         # Loại bỏ các mô tả triết lý rườm rà, tập trung 100% vào action guidelines và rules thực thi.
@@ -1570,4 +1659,10 @@ class AIDeveloperHarness:
             return
             
         print("\n🎉 [PIPELINE SUCCESS]: Đã hoàn thành tác vụ xuất sắc thông qua Spec-Driven Development!")
+        
+        # Post-pipeline: Cập nhật Test Matrix với các test files mới
+        all_test_files = list(set(self.pipeline_context.get("test_files_created", []) + self.test_writer_files))
+        if all_test_files:
+            self.update_test_matrix(task_description, all_test_files)
+        
         self.distill_and_persist_lessons(task_description)

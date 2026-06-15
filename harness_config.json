@@ -4,6 +4,10 @@
     "CLAUDE.md"
   ],
   "skills_and_guides": [
+    "docs/FEATURE_INTAKE.md",
+    "docs/CONTEXT_RULES.md",
+    "docs/TEST_MATRIX.md",
+    "docs/agent_flow.md",
     "docs/guides/DDD_GUIDE.md",
     "skills/analyzing-dotnet-performance/SKILL.md",
     "skills/dotnet-best-practices/SKILL.md",
