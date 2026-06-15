@@ -48,11 +48,11 @@ public static class DependencyInjection
         {
             if (databaseProvider.Equals("PostgreSQL", StringComparison.OrdinalIgnoreCase))
             {
-                options.UseNpgsql(connectionString);
+                options.UseNpgsql(connectionString, b => b.MigrationsAssembly("FloraCore"));
             }
             else
             {
-                options.UseSqlServer(connectionString);
+                options.UseSqlServer(connectionString, b => b.MigrationsAssembly("FloraCore"));
             }
 
             options.ConfigureWarnings(warnings =>
