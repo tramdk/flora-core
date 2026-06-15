@@ -1,5 +1,6 @@
 using FloraCore.Application.Features.Cart.Commands;
 using FloraCore.Application.Features.Cart.Queries;
+using FloraCore.Application.Features.Cart.DTOs;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -14,14 +15,9 @@ namespace FloraCore.Controllers;
 [ApiVersion("1.0")]
 [Route("api/v{version:apiVersion}/[controller]")]
 [Authorize]
-public class CartController : ControllerBase
+public class CartController(IMediator mediator) : ControllerBase
 {
-    private readonly IMediator _mediator;
-
-    public CartController(IMediator mediator)
-    {
-        _mediator = mediator;
-    }
+    private readonly IMediator _mediator = mediator ?? throw new ArgumentNullException(nameof(mediator));
 
     [HttpGet]
     public async Task<ActionResult<CartDto>> GetCart()

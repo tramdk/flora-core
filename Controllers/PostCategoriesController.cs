@@ -1,5 +1,6 @@
 using FloraCore.Application.Features.PostCategories.Commands;
 using FloraCore.Application.Features.PostCategories.Queries;
+using FloraCore.Application.Features.PostCategories.DTOs;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -12,14 +13,9 @@ namespace FloraCore.Controllers;
 [ApiController]
 [ApiVersion("1.0")]
 [Route("api/v{version:apiVersion}/[controller]")]
-public class PostCategoriesController : ControllerBase
+public class PostCategoriesController(IMediator mediator) : ControllerBase
 {
-    private readonly IMediator _mediator;
-
-    public PostCategoriesController(IMediator mediator)
-    {
-        _mediator = mediator;
-    }
+    private readonly IMediator _mediator = mediator ?? throw new ArgumentNullException(nameof(mediator));
 
     [HttpGet]
     public async Task<ActionResult<List<PostCategoryDto>>> GetAll()

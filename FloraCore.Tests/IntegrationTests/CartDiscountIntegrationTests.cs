@@ -6,6 +6,8 @@ using System.Net.Http.Json;
 using System.Threading.Tasks;
 using FloraCore.Application.Features.Cart.Commands;
 using FloraCore.Application.Features.Cart.Queries;
+using FloraCore.Application.Features.Cart.DTOs;
+using FloraCore.Application.Features.Cart.DTOs;
 using FloraCore.Application.Features.Auth.Commands;
 using FloraCore.Domain.Entities;
 using FloraCore.Infrastructure.Data;

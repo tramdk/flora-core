@@ -7,9 +7,10 @@ namespace FloraCore.Infrastructure.Data;
 /// <summary>
 /// Unit of Work implementation using Entity Framework Core.
 /// </summary>
-public class UnitOfWork(AppDbContext context) : IUnitOfWork
+public class UnitOfWork(AppDbContext context, IResourceManager resourceManager) : IUnitOfWork
 {
     private readonly AppDbContext _context = context ?? throw new ArgumentNullException(nameof(context));
+    private readonly IResourceManager _resourceManager = resourceManager ?? throw new ArgumentNullException(nameof(resourceManager));
     private IDbContextTransaction? _transaction;
     private bool _disposed;
 
@@ -26,7 +27,7 @@ public class UnitOfWork(AppDbContext context) : IUnitOfWork
     public async Task CommitTransactionAsync(CancellationToken cancellationToken = default)
     {
         if (_transaction == null)
-            throw new InvalidOperationException("Transaction has not been started.");
+            throw new InvalidOperationException(_resourceManager.GetString("TransactionNotStarted"));
 
         try
         {

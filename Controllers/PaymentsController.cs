@@ -11,15 +11,21 @@ using FloraCore.Infrastructure.Services.Payments;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
+using Microsoft.Extensions.Options;
+
 namespace FloraCore.Controllers;
 
 [ApiController]
 [ApiVersion("1.0")]
 [Route("api/v{version:apiVersion}/[controller]")]
-public class PaymentsController(IIdempotentPaymentHandler paymentHandler, Microsoft.Extensions.Configuration.IConfiguration configuration) : ControllerBase
+public class PaymentsController(
+    IIdempotentPaymentHandler paymentHandler, 
+    IOptions<PaymentGatewaysOptions> paymentGatewaysOptions,
+    IResourceManager resourceManager) : ControllerBase
 {
     private readonly IIdempotentPaymentHandler _paymentHandler = paymentHandler ?? throw new ArgumentNullException(nameof(paymentHandler));
-    private readonly Microsoft.Extensions.Configuration.IConfiguration _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+    private readonly PaymentGatewaysOptions _paymentGatewaysOptions = (paymentGatewaysOptions ?? throw new ArgumentNullException(nameof(paymentGatewaysOptions))).Value;
+    private readonly IResourceManager _resourceManager = resourceManager ?? throw new ArgumentNullException(nameof(resourceManager));
 
     /// <summary>
     /// VNPay redirect callback (for Client/Browser redirection).
@@ -34,10 +40,10 @@ public class PaymentsController(IIdempotentPaymentHandler paymentHandler, Micros
         var dto = new PaymentCallbackDto { QueryParameters = queryParams };
         var success = await _paymentHandler.ProcessPaymentCallbackAsync("VNPAY", txnRef, dto);
 
-        var frontendUrl = _configuration["PaymentGateways:FrontendUrl"];
+        var frontendUrl = _paymentGatewaysOptions.FrontendUrl;
         if (string.IsNullOrEmpty(frontendUrl))
         {
-            throw new InvalidOperationException("PaymentGateways:FrontendUrl configuration is missing.");
+            throw new InvalidOperationException(_resourceManager.GetString("FrontendUrlConfigMissing"));
         }
 
         if (success)

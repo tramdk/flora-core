@@ -19,16 +19,10 @@ namespace FloraCore.Controllers;
 [ApiController]
 [ApiVersion("1.0")]
 [Route("api/v{version:apiVersion}/[controller]")]
-public class FilesController : ControllerBase
+public class FilesController(IFileService fileService, IMapper mapper) : ControllerBase
 {
-    private readonly IFileService _fileService;
-    private readonly IMapper _mapper;
-
-    public FilesController(IFileService fileService, IMapper mapper)
-    {
-        _fileService = fileService;
-        _mapper = mapper;
-    }
+    private readonly IFileService _fileService = fileService ?? throw new ArgumentNullException(nameof(fileService));
+    private readonly IMapper _mapper = mapper ?? throw new ArgumentNullException(nameof(mapper));
 
     [HttpPost("upload")]
     public async Task<ActionResult<FileResponse>> UploadFile(IFormFile file, [FromForm] string? objectId, [FromForm] string? objectType, [FromForm] bool isPublic = true)

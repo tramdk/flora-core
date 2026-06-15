@@ -1,5 +1,6 @@
 using FloraCore.Application.Features.Users.Commands;
 using FloraCore.Application.Features.Users.Queries;
+using FloraCore.Application.Features.Users.DTOs;
 using FloraCore.Application.Common.Constants;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
@@ -13,14 +14,9 @@ namespace FloraCore.Controllers;
 [ApiController]
 [ApiVersion("1.0")]
 [Route("api/v{version:apiVersion}/[controller]")]
-public class UsersController : ControllerBase
+public class UsersController(IMediator mediator) : ControllerBase
 {
-    private readonly IMediator _mediator;
-
-    public UsersController(IMediator mediator)
-    {
-        _mediator = mediator;
-    }
+    private readonly IMediator _mediator = mediator ?? throw new ArgumentNullException(nameof(mediator));
 
     [HttpGet]
     [Authorize(Roles = RoleConstants.Admin)]

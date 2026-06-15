@@ -15,14 +15,9 @@ namespace FloraCore.Controllers;
 [ApiController]
 [ApiVersion("1.0")]
 [Route("api/v{version:apiVersion}/[controller]")]
-public class NotificationsController : ControllerBase
+public class NotificationsController(IMediator mediator) : ControllerBase
 {
-    private readonly IMediator _mediator;
-
-    public NotificationsController(IMediator mediator)
-    {
-        _mediator = mediator;
-    }
+    private readonly IMediator _mediator = mediator ?? throw new ArgumentNullException(nameof(mediator));
 
     [HttpGet]
     public async Task<ActionResult<List<NotificationDto>>> GetNotifications()

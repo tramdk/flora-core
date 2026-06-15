@@ -11,14 +11,9 @@ namespace FloraCore.Controllers;
 [ApiVersion("1.0")]
 [Route("api/v{version:apiVersion}/[controller]")]
 [Authorize]
-public class ReviewsController : ControllerBase
+public class ReviewsController(IMediator mediator) : ControllerBase
 {
-    private readonly IMediator _mediator;
-
-    public ReviewsController(IMediator mediator)
-    {
-        _mediator = mediator;
-    }
+    private readonly IMediator _mediator = mediator ?? throw new ArgumentNullException(nameof(mediator));
 
     [HttpPost]
     public async Task<ActionResult> AddReview(AddProductReviewCommand command)

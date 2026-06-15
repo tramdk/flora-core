@@ -15,14 +15,9 @@ namespace FloraCore.Controllers;
 [ApiController]
 [ApiVersion("1.0")]
 [Route("api/v{version:apiVersion}/[controller]")]
-public class ChatController : ControllerBase
+public class ChatController(IMediator mediator) : ControllerBase
 {
-    private readonly IMediator _mediator;
-
-    public ChatController(IMediator mediator)
-    {
-        _mediator = mediator;
-    }
+    private readonly IMediator _mediator = mediator ?? throw new ArgumentNullException(nameof(mediator));
 
     [HttpPost("send")]
     public async Task<ActionResult<Guid>> SendMessage(SendMessageCommand command)

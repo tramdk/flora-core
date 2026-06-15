@@ -21,39 +21,21 @@ namespace FloraCore.Infrastructure.Services;
 /// <summary>
 /// Implementation of IFileService using Cloudinary for file storage.
 /// </summary>
-public class CloudinaryFileService : IFileService
+public class CloudinaryFileService(
+    IGenericRepository<FileMetadata, Guid> repository,
+    IOptions<CloudinarySettings> config,
+    ICurrentUserService currentUserService,
+    IHttpClientFactory httpClientFactory,
+    ResiliencePipelineProvider<string> pipelineProvider,
+        IResourceManager resourceManager) : IFileService
 {
-    private readonly IGenericRepository<FileMetadata, Guid> _repository;
-    private readonly Cloudinary _cloudinary;
-    private readonly ICurrentUserService _currentUserService;
-    private readonly HttpClient _httpClient;
-    private readonly ResiliencePipeline _resiliencePipeline;
-    private readonly IOptions<CloudinarySettings> _config;
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="CloudinaryFileService"/> class.
-    /// </summary>
-    /// <param name="repository">The repository for file metadata.</param>
-    /// <param name="config">The Cloudinary configuration.</param>
-    /// <param name="currentUserService">The current user service.</param>
-    /// <param name="httpClientFactory">The HTTP client factory.</param>
-    /// <param name="pipelineProvider">The resilience pipeline provider.</param>
-    public CloudinaryFileService(
-        IGenericRepository<FileMetadata, Guid> repository,
-        IOptions<CloudinarySettings> config,
-        ICurrentUserService currentUserService,
-        IHttpClientFactory httpClientFactory,
-        ResiliencePipelineProvider<string> pipelineProvider)
-    {
-        _repository = repository ?? throw new ArgumentNullException(nameof(repository));
-        _config = config ?? throw new ArgumentNullException(nameof(config));
-        _currentUserService = currentUserService ?? throw new ArgumentNullException(nameof(currentUserService));
-        _httpClient = httpClientFactory.CreateClient("ResilientClient") ?? throw new ArgumentNullException(nameof(httpClientFactory));
-        _resiliencePipeline = pipelineProvider.GetPipeline("external-services") ?? throw new ArgumentNullException(nameof(pipelineProvider));
-
-        var acc = new Account(_config.Value.CloudName, _config.Value.ApiKey, _config.Value.ApiSecret);
-        _cloudinary = new Cloudinary(acc);
-    }
+    private readonly IGenericRepository<FileMetadata, Guid> _repository = repository ?? throw new ArgumentNullException(nameof(repository));
+    private readonly Cloudinary _cloudinary = new Cloudinary(new Account((config ?? throw new ArgumentNullException(nameof(config))).Value.CloudName, config.Value.ApiKey, config.Value.ApiSecret));
+    private readonly ICurrentUserService _currentUserService = currentUserService ?? throw new ArgumentNullException(nameof(currentUserService));
+    private readonly HttpClient _httpClient = (httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory))).CreateClient("ResilientClient");
+    private readonly ResiliencePipeline _resiliencePipeline = (pipelineProvider ?? throw new ArgumentNullException(nameof(pipelineProvider))).GetPipeline("external-services");
+    private readonly IResourceManager _resourceManager = resourceManager ?? throw new ArgumentNullException(nameof(resourceManager));
+    private readonly IOptions<CloudinarySettings> _config = config;
 
     /// <summary>
     /// Uploads a file to Cloudinary.
@@ -155,7 +137,7 @@ public class CloudinaryFileService : IFileService
         if (metadata == null) return false;
 
         if (metadata.UploadedById != _currentUserService.UserId)
-            throw new UnauthorizedAccessException("You are not authorized to delete this file.");
+            throw new UnauthorizedAccessException(_resourceManager.GetString("UnauthorizedToDeleteFile"));
 
         try
         {
@@ -182,10 +164,10 @@ public class CloudinaryFileService : IFileService
     public async Task<(byte[] Bytes, string ContentType, string FileName)> DownloadFileAsync(Guid fileId)
     {
         var metadata = await _repository.GetByIdAsync(fileId);
-        if (metadata == null) throw new FileNotFoundException("File metadata not found");
+        if (metadata == null) throw new FileNotFoundException(_resourceManager.GetString("FileNotFound"));
 
         if (!metadata.IsPublic && metadata.UploadedById != _currentUserService.UserId)
-            throw new UnauthorizedAccessException("You are not authorized to access this private file.");
+            throw new UnauthorizedAccessException(_resourceManager.GetString("UnauthorizedToAccessPrivateFile"));
 
         var fileUrl = metadata.Url ?? metadata.FilePath;
         byte[] bytes;
@@ -195,7 +177,7 @@ public class CloudinaryFileService : IFileService
         }
         catch (HttpRequestException ex)
         {
-            throw new FileNotFoundException("File not found at URL: " + fileUrl, ex);
+            throw new FileNotFoundException(_resourceManager.GetString("FileNotFound") + " URL: " + fileUrl, ex);
         }
 
         return (bytes, metadata.ContentType, metadata.FileName);
@@ -214,10 +196,10 @@ public class CloudinaryFileService : IFileService
         var metadata = files.OrderByDescending(f => f.UploadedAt).FirstOrDefault();
 
         if (metadata == null)
-            throw new FileNotFoundException($"No database entry found for ObjectId: {objectId}");
+            throw new FileNotFoundException(string.Format(_resourceManager.GetString("NoDatabaseEntryForObjectId"), objectId));
 
         if (!metadata.IsPublic && metadata.UploadedById != _currentUserService.UserId)
-            throw new UnauthorizedAccessException("You are not authorized to access this private file.");
+            throw new UnauthorizedAccessException(_resourceManager.GetString("UnauthorizedToAccessPrivateFile"));
 
         var fileUrl = metadata.Url ?? metadata.FilePath;
         byte[] bytes;
@@ -227,7 +209,7 @@ public class CloudinaryFileService : IFileService
         }
         catch (HttpRequestException ex)
         {
-            throw new FileNotFoundException("File not found at URL: " + fileUrl, ex);
+            throw new FileNotFoundException(_resourceManager.GetString("FileNotFound") + " URL: " + fileUrl, ex);
         }
 
         return (bytes, metadata.ContentType, metadata.FileName);

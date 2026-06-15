@@ -1,5 +1,7 @@
 using FloraCore.Application.Common.Interfaces;
 using FloraCore.Application.Features.Cart.Queries;
+using FloraCore.Application.Features.Cart.DTOs;
+using FloraCore.Application.Features.Cart.DTOs;
 using FloraCore.Domain.Entities;
 using FloraCore.Infrastructure.Data;
 using FloraCore.Infrastructure.Repositories;
@@ -21,6 +23,7 @@ public class GetCartQueryHandlerTests : IDisposable
     private readonly SqliteConnection _connection;
     private readonly AppDbContext _context;
     private readonly Mock<ICurrentUserService> _mockCurrentUserService;
+    private readonly Mock<IResourceManager> _mockResourceManager;
     private readonly GenericRepository<FloraCore.Domain.Entities.Cart, Guid> _cartRepository;
 
     public GetCartQueryHandlerTests()
@@ -36,6 +39,8 @@ public class GetCartQueryHandlerTests : IDisposable
         _context.Database.EnsureCreated();
 
         _mockCurrentUserService = new Mock<ICurrentUserService>();
+        _mockResourceManager = new Mock<IResourceManager>();
+        _mockResourceManager.Setup(x => x.GetString("UserNotAuthenticated")).Returns("User not authenticated");
         _cartRepository = new GenericRepository<FloraCore.Domain.Entities.Cart, Guid>(_context);
     }
 
@@ -46,7 +51,7 @@ public class GetCartQueryHandlerTests : IDisposable
         var userId = Guid.NewGuid();
         _mockCurrentUserService.Setup(x => x.UserId).Returns(userId);
 
-        var handler = new GetCartQueryHandler(_cartRepository, _mockCurrentUserService.Object);
+        var handler = new GetCartQueryHandler(_cartRepository, _mockCurrentUserService.Object, _mockResourceManager.Object);
         var query = new GetCartQuery();
 
         // Act
@@ -111,7 +116,7 @@ public class GetCartQueryHandlerTests : IDisposable
         _context.Carts.Add(cart);
         await _context.SaveChangesAsync();
 
-        var handler = new GetCartQueryHandler(_cartRepository, _mockCurrentUserService.Object);
+        var handler = new GetCartQueryHandler(_cartRepository, _mockCurrentUserService.Object, _mockResourceManager.Object);
         var query = new GetCartQuery();
 
         // Act
@@ -144,7 +149,7 @@ public class GetCartQueryHandlerTests : IDisposable
         // Arrange
         _mockCurrentUserService.Setup(x => x.UserId).Returns((Guid?)null);
 
-        var handler = new GetCartQueryHandler(_cartRepository, _mockCurrentUserService.Object);
+        var handler = new GetCartQueryHandler(_cartRepository, _mockCurrentUserService.Object, _mockResourceManager.Object);
         var query = new GetCartQuery();
 
         // Act

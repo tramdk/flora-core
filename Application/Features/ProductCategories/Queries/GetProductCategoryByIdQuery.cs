@@ -5,18 +5,20 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 
+using FloraCore.Application.Features.ProductCategories.DTOs;
+
+using FloraCore.Application.Features.ProductCategories.DTOs;
+
 namespace FloraCore.Application.Features.ProductCategories.Queries;
 
-public record GetProductCategoryByIdQuery(Guid Id) : IRequest<ProductCategoryDto?>;
-
-public class GetProductCategoryByIdQueryHandler : IRequestHandler<GetProductCategoryByIdQuery, ProductCategoryDto?>
+public record GetProductCategoryByIdQuery(Guid Id) : IRequest<ProductCategoryDto?>
 {
-    private readonly IGenericRepository<ProductCategory, Guid> _repository;
+    // ThrowIfNull
+}
 
-    public GetProductCategoryByIdQueryHandler(IGenericRepository<ProductCategory, Guid> repository)
-    {
-        _repository = repository;
-    }
+public class GetProductCategoryByIdQueryHandler(IGenericRepository<ProductCategory, Guid> repository) : IRequestHandler<GetProductCategoryByIdQuery, ProductCategoryDto?>
+{
+    private readonly IGenericRepository<ProductCategory, Guid> _repository = repository ?? throw new ArgumentNullException(nameof(repository));
 
     public async Task<ProductCategoryDto?> Handle(GetProductCategoryByIdQuery request, CancellationToken cancellationToken)
     {

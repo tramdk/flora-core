@@ -1,32 +1,23 @@
+using FloraCore.Domain.Common;
+
 namespace FloraCore.Domain.ValueObjects;
 
 /// <summary>
 /// Value object representing a money amount with currency.
 /// Immutable by design.
 /// </summary>
-public record Money
+public record Money(decimal Amount, string Currency = "VND")
 {
-    public decimal Amount { get; }
-    public string Currency { get; }
-
-    public Money(decimal amount, string currency = "VND")
-    {
-        if (amount < 0)
-            throw new ArgumentException("Amount cannot be negative", nameof(amount));
-        
-        if (string.IsNullOrWhiteSpace(currency))
-            throw new ArgumentException("Currency is required", nameof(currency));
-
-        Amount = amount;
-        Currency = currency.ToUpperInvariant();
-    }
+    // ThrowIfNull
+    public decimal Amount { get; init; } = Amount >= 0 ? Amount : throw new ArgumentException(DomainErrors.Money.AmountCannotBeNegative, nameof(Amount));
+    public string Currency { get; init; } = !string.IsNullOrWhiteSpace(Currency) ? Currency.ToUpperInvariant() : throw new ArgumentException(DomainErrors.Money.CurrencyRequired, nameof(Currency));
 
     public static Money Zero(string currency = "VND") => new(0, currency);
     
     public static Money operator +(Money left, Money right)
     {
         if (left.Currency != right.Currency)
-            throw new InvalidOperationException("Cannot add different currencies");
+            throw new InvalidOperationException(DomainErrors.Money.CannotAddDifferentCurrencies);
         
         return new Money(left.Amount + right.Amount, left.Currency);
     }
@@ -34,7 +25,7 @@ public record Money
     public static Money operator -(Money left, Money right)
     {
         if (left.Currency != right.Currency)
-            throw new InvalidOperationException("Cannot subtract different currencies");
+            throw new InvalidOperationException(DomainErrors.Money.CannotSubtractDifferentCurrencies);
         
         return new Money(left.Amount - right.Amount, left.Currency);
     }

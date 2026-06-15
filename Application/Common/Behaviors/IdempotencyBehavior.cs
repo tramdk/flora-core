@@ -11,10 +11,11 @@ namespace FloraCore.Application.Common.Behaviors;
 /// <summary>
 /// Pipeline behavior to enforce request idempotency for marked commands.
 /// </summary>
-public class IdempotencyBehavior<TRequest, TResponse>(IDistributedCache cache) : IPipelineBehavior<TRequest, TResponse>
+public class IdempotencyBehavior<TRequest, TResponse>(IDistributedCache cache, IResourceManager resourceManager) : IPipelineBehavior<TRequest, TResponse>
     where TRequest : IRequest<TResponse>
 {
     private readonly IDistributedCache _cache = cache ?? throw new ArgumentNullException(nameof(cache));
+    private readonly IResourceManager _resourceManager = resourceManager ?? throw new ArgumentNullException(nameof(resourceManager));
 
     /// <inheritdoc />
     public async Task<TResponse> Handle(TRequest request, RequestHandlerDelegate<TResponse> next, CancellationToken cancellationToken)
@@ -38,7 +39,7 @@ public class IdempotencyBehavior<TRequest, TResponse>(IDistributedCache cache) :
         {
             if (cachedValue == "processing")
             {
-                throw new InvalidOperationException("A duplicate request is already being processed.");
+                throw new InvalidOperationException(_resourceManager.GetString("DuplicateRequest"));
             }
 
             var cachedResponse = JsonSerializer.Deserialize<TResponse>(cachedValue);

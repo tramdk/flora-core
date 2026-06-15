@@ -5,19 +5,21 @@ using MediatR;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
+using FloraCore.Application.Features.Users.DTOs;
+
+using FloraCore.Application.Features.Users.DTOs;
+
 namespace FloraCore.Application.Features.Users.Queries;
 
 [Cacheable(ExpirationMinutes = 2)]
-public record GetUsersQuery(int PageNumber = 1, int PageSize = 10) : IRequest<PagedResult<UserDto>>;
-
-public class GetUsersHandler : IRequestHandler<GetUsersQuery, PagedResult<UserDto>>
+public record GetUsersQuery(int PageNumber = 1, int PageSize = 10) : IRequest<PagedResult<UserDto>>
 {
-    private readonly UserManager<AppUser> _userManager;
+    // ThrowIfNull
+}
 
-    public GetUsersHandler(UserManager<AppUser> userManager)
-    {
-        _userManager = userManager;
-    }
+public class GetUsersHandler(UserManager<AppUser> userManager) : IRequestHandler<GetUsersQuery, PagedResult<UserDto>>
+{
+    private readonly UserManager<AppUser> _userManager = userManager ?? throw new ArgumentNullException(nameof(userManager));
 
     public async Task<PagedResult<UserDto>> Handle(GetUsersQuery request, CancellationToken cancellationToken)
     {

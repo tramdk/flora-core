@@ -2,6 +2,8 @@ using FloraCore.Application.Common.Interfaces;
 using FloraCore.Application.Common.Services;
 using FloraCore.Application.Features.Auth.DTOs;
 using FloraCore.Application.Features.Users.Queries;
+using FloraCore.Application.Features.Users.DTOs;
+using FloraCore.Application.Features.Users.DTOs;
 using FloraCore.Domain.Entities;
 using MediatR;
 using Microsoft.AspNetCore.Identity;
@@ -24,11 +26,13 @@ public record LoginCommand(string Email, string Password) : IRequest<AuthRespons
 public class LoginHandler(
     UserManager<AppUser> userManager, 
     IJwtService jwtService, 
-    IGenericRepository<RefreshToken, Guid> refreshTokenRepository) : IRequestHandler<LoginCommand, AuthResponse>
+    IGenericRepository<RefreshToken, Guid> refreshTokenRepository,
+    IResourceManager resourceManager) : IRequestHandler<LoginCommand, AuthResponse>
 {
     private readonly UserManager<AppUser> _userManager = userManager ?? throw new ArgumentNullException(nameof(userManager));
     private readonly IJwtService _jwtService = jwtService ?? throw new ArgumentNullException(nameof(jwtService));
     private readonly IGenericRepository<RefreshToken, Guid> _refreshTokenRepository = refreshTokenRepository ?? throw new ArgumentNullException(nameof(refreshTokenRepository));
+    private readonly IResourceManager _resourceManager = resourceManager ?? throw new ArgumentNullException(nameof(resourceManager));
 
     /// <summary>
     /// Handles the login request by validating credentials and generating tokens.
@@ -40,7 +44,7 @@ public class LoginHandler(
     {
         var user = await _userManager.FindByEmailAsync(request.Email);
         if (user == null || !await _userManager.CheckPasswordAsync(user, request.Password))
-            throw new UnauthorizedAccessException("Invalid credentials");
+            throw new UnauthorizedAccessException(_resourceManager.GetString("InvalidCredentials"));
 
         var roles = await _userManager.GetRolesAsync(user);
         var (token, jti) = _jwtService.GenerateAccessToken(user, roles);

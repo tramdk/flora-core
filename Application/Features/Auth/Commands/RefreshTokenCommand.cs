@@ -1,6 +1,7 @@
 using FloraCore.Application.Common.Services;
 using FloraCore.Application.Features.Auth.DTOs;
 using FloraCore.Application.Features.Users.Queries;
+using FloraCore.Application.Features.Users.DTOs;
 using FloraCore.Domain.Entities;
 using FloraCore.Application.Common.Interfaces;
 using MediatR;
@@ -16,24 +17,18 @@ namespace FloraCore.Application.Features.Auth.Commands;
 
 public record RefreshTokenCommand(string AccessToken, string RefreshToken) : IRequest<AuthResponse>;
 
-public class RefreshTokenHandler : IRequestHandler<RefreshTokenCommand, AuthResponse>
+public class RefreshTokenHandler(
+    IJwtService jwtService,
+    IGenericRepository<RefreshToken, Guid> refreshTokenRepository,
+    IUnitOfWork unitOfWork,
+    UserManager<AppUser> userManager,
+    IResourceManager resourceManager) : IRequestHandler<RefreshTokenCommand, AuthResponse>
 {
-    private readonly IJwtService _jwtService;
-    private readonly IGenericRepository<RefreshToken, Guid> _refreshTokenRepository;
-    private readonly IUnitOfWork _unitOfWork;
-    private readonly UserManager<AppUser> _userManager;
-
-    public RefreshTokenHandler(
-        IJwtService jwtService,
-        IGenericRepository<RefreshToken, Guid> refreshTokenRepository,
-        IUnitOfWork unitOfWork,
-        UserManager<AppUser> userManager)
-    {
-        _jwtService = jwtService;
-        _refreshTokenRepository = refreshTokenRepository;
-        _unitOfWork = unitOfWork;
-        _userManager = userManager;
-    }
+    private readonly IJwtService _jwtService = jwtService ?? throw new ArgumentNullException(nameof(jwtService));
+    private readonly IGenericRepository<RefreshToken, Guid> _refreshTokenRepository = refreshTokenRepository ?? throw new ArgumentNullException(nameof(refreshTokenRepository));
+    private readonly IUnitOfWork _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
+    private readonly UserManager<AppUser> _userManager = userManager ?? throw new ArgumentNullException(nameof(userManager));
+    private readonly IResourceManager _resourceManager = resourceManager ?? throw new ArgumentNullException(nameof(resourceManager));
 
     public async Task<AuthResponse> Handle(RefreshTokenCommand request, CancellationToken cancellationToken)
     {
@@ -45,7 +40,7 @@ public class RefreshTokenHandler : IRequestHandler<RefreshTokenCommand, AuthResp
         var savedRefreshToken = refreshTokens.FirstOrDefault();
 
         if (savedRefreshToken == null)
-            throw new UnauthorizedAccessException("Invalid refresh token");
+            throw new UnauthorizedAccessException(_resourceManager.GetString("InvalidRefreshToken"));
 
         // DETECTION: If token is already used or revoked → possible reuse attack!
         if (savedRefreshToken.IsUsed || savedRefreshToken.IsRevoked)
@@ -57,14 +52,14 @@ public class RefreshTokenHandler : IRequestHandler<RefreshTokenCommand, AuthResp
                     s => s.SetProperty(t => t.IsRevoked, true),
                     cancellationToken);
 
-            throw new UnauthorizedAccessException("Refresh token reuse detected! All tokens revoked for security.");
+            throw new UnauthorizedAccessException(_resourceManager.GetString("RefreshTokenReuse"));
         }
 
         if (savedRefreshToken.IsExpired)
-            throw new UnauthorizedAccessException("Refresh token expired");
+            throw new UnauthorizedAccessException(_resourceManager.GetString("RefreshTokenExpired"));
 
         var user = await _userManager.FindByIdAsync(userIdStr);
-        if (user == null) throw new UnauthorizedAccessException("User not found");
+        if (user == null) throw new UnauthorizedAccessException(_resourceManager.GetString("UserNotFound"));
 
         var roles = await _userManager.GetRolesAsync(user);
         var (newToken, newJti) = _jwtService.GenerateAccessToken(user, roles);

@@ -9,7 +9,7 @@ using FloraCore.Application.Common.Constants;
 using FloraCore.Application.Interfaces;
 using System;
 using FloraCore.Application.Common.Models;
-using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 
 namespace FloraCore.Application.Features.Orders.Events;
 
@@ -23,7 +23,7 @@ public class OrderCreatedEventHandler(
     IEmailService emailService,
     IUnitOfWork unitOfWork,
     IGenericRepository<OutboxMessage, Guid> outboxRepository,
-    IConfiguration configuration,
+    IOptions<PaymentGatewaysOptions> paymentGatewaysOptions,
     IResourceManager resourceManager,
     IPaymentServiceFactory paymentServiceFactory,
     ILogger<OrderCreatedEventHandler> logger) : INotificationHandler<OrderCreatedEvent>
@@ -34,7 +34,7 @@ public class OrderCreatedEventHandler(
     private readonly IEmailService _emailService = emailService ?? throw new ArgumentNullException(nameof(emailService));
     private readonly IUnitOfWork _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
     private readonly IGenericRepository<OutboxMessage, Guid> _outboxRepository = outboxRepository ?? throw new ArgumentNullException(nameof(outboxRepository));
-    private readonly IConfiguration _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+    private readonly PaymentGatewaysOptions _paymentGatewaysOptions = (paymentGatewaysOptions ?? throw new ArgumentNullException(nameof(paymentGatewaysOptions))).Value;
     private readonly IResourceManager _resourceManager = resourceManager ?? throw new ArgumentNullException(nameof(resourceManager));
     private readonly IPaymentServiceFactory _paymentServiceFactory = paymentServiceFactory ?? throw new ArgumentNullException(nameof(paymentServiceFactory));
     private readonly ILogger<OrderCreatedEventHandler> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -53,7 +53,7 @@ public class OrderCreatedEventHandler(
                 // Stage payment outbox message if it's not COD
                 if (order.PaymentMethod != "COD")
                 {
-                    var apiUrl = _configuration["PaymentGateways:ApiUrl"];
+                    var apiUrl = _paymentGatewaysOptions.ApiUrl;
                     if (string.IsNullOrEmpty(apiUrl))
                     {
                         throw new InvalidOperationException(_resourceManager.GetString("PaymentConfigMissing"));

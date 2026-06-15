@@ -120,6 +120,9 @@ public static class DependencyInjection
         // Configure Cloudinary
         services.Configure<CloudinarySettings>(configuration.GetSection("Cloudinary"));
 
+        // Configure PaymentGateways
+        services.Configure<PaymentGatewaysOptions>(configuration.GetSection(PaymentGatewaysOptions.SectionName));
+
         // Register CloudinaryFileService with IOptions
         services.AddScoped<IFileService, CloudinaryFileService>(sp =>
         {
@@ -129,12 +132,14 @@ public static class DependencyInjection
             var httpClientFactory = sp.GetRequiredService<IHttpClientFactory>();
             var pipelineProvider = sp.GetRequiredService<ResiliencePipelineProvider<string>>();
 
+            var resourceManager = sp.GetRequiredService<IResourceManager>();
             return new CloudinaryFileService(
                 repository,
                 config,
                 currentUserService,
                 httpClientFactory,
-                pipelineProvider
+                pipelineProvider,
+                resourceManager
             );
         });
 

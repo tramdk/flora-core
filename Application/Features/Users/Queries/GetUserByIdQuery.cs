@@ -5,18 +5,20 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 
+using FloraCore.Application.Features.Users.DTOs;
+
+using FloraCore.Application.Features.Users.DTOs;
+
 namespace FloraCore.Application.Features.Users.Queries;
 
-public record GetUserByIdQuery(Guid Id) : IRequest<UserDto?>;
-
-public class GetUserByIdHandler : IRequestHandler<GetUserByIdQuery, UserDto?>
+public record GetUserByIdQuery(Guid Id) : IRequest<UserDto?>
 {
-    private readonly UserManager<AppUser> _userManager;
+    // ThrowIfNull
+}
 
-    public GetUserByIdHandler(UserManager<AppUser> userManager)
-    {
-        _userManager = userManager;
-    }
+public class GetUserByIdHandler(UserManager<AppUser> userManager) : IRequestHandler<GetUserByIdQuery, UserDto?>
+{
+    private readonly UserManager<AppUser> _userManager = userManager ?? throw new ArgumentNullException(nameof(userManager));
 
     public async Task<UserDto?> Handle(GetUserByIdQuery request, CancellationToken cancellationToken)
     {

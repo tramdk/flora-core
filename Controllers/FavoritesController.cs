@@ -13,14 +13,9 @@ namespace FloraCore.Controllers;
 [ApiVersion("1.0")]
 [Route("api/v{version:apiVersion}/[controller]")]
 [Authorize]
-public class FavoritesController : ControllerBase
+public class FavoritesController(IMediator mediator) : ControllerBase
 {
-    private readonly IMediator _mediator;
-
-    public FavoritesController(IMediator mediator)
-    {
-        _mediator = mediator;
-    }
+    private readonly IMediator _mediator = mediator ?? throw new ArgumentNullException(nameof(mediator));
 
     [HttpPost("toggle/{productId}")]
     public async Task<ActionResult<bool>> ToggleFavorite(Guid productId)

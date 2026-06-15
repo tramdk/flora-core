@@ -7,6 +7,10 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
+using FloraCore.Application.Features.PostCategories.DTOs;
+
+using FloraCore.Application.Features.PostCategories.DTOs;
+
 namespace FloraCore.Application.Features.PostCategories.Queries;
 
 public record GetPostCategoriesQuery : IRequest<List<PostCategoryDto>>;

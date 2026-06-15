@@ -2,6 +2,8 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Net.Http.Headers;
 using FloraCore.Application.Features.PostCategories.Queries;
+using FloraCore.Application.Features.PostCategories.DTOs;
+using FloraCore.Application.Features.PostCategories.DTOs;
 using FloraCore.Application.Features.Auth.Commands;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Xunit;

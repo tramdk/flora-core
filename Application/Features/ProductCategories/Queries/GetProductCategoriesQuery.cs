@@ -7,6 +7,10 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
+using FloraCore.Application.Features.ProductCategories.DTOs;
+
+using FloraCore.Application.Features.ProductCategories.DTOs;
+
 namespace FloraCore.Application.Features.ProductCategories.Queries;
 
 public record GetProductCategoriesQuery : IRequest<List<ProductCategoryDto>>;

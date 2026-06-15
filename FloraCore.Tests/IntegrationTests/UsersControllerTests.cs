@@ -2,6 +2,8 @@ using System.Net;
 using System.Net.Http.Json;
 using FloraCore.Application.Features.Users.Commands;
 using FloraCore.Application.Features.Users.Queries;
+using FloraCore.Application.Features.Users.DTOs;
+using FloraCore.Application.Features.Users.DTOs;
 using Xunit;
 using FloraCore.Application.Features.Auth.Commands;
 using FloraCore.Application.Common.Models;

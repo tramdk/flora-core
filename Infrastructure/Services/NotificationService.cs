@@ -11,27 +11,14 @@ namespace FloraCore.Infrastructure.Services;
 /// <summary>
 /// Implementation of <see cref="INotificationService"/> for sending notifications to users.
 /// </summary>
-public class NotificationService : INotificationService
+public class NotificationService(
+    IGenericRepository<Notification, Guid> repository,
+    IHubContext<NotificationHub, INotificationClient> hubContext,
+    ILogger<NotificationService> logger) : INotificationService
 {
-    private readonly IGenericRepository<Notification, Guid> _repository;
-    private readonly IHubContext<NotificationHub, INotificationClient> _hubContext;
-    private readonly ILogger<NotificationService> _logger;
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="NotificationService"/> class.
-    /// </summary>
-    /// <param name="repository">The repository for notifications.</param>
-    /// <param name="hubContext">The hub context for SignalR.</param>
-    /// <param name="logger">The logger.</param>
-    public NotificationService(
-        IGenericRepository<Notification, Guid> repository,
-        IHubContext<NotificationHub, INotificationClient> hubContext,
-        ILogger<NotificationService> logger)
-    {
-        _repository = repository ?? throw new ArgumentNullException(nameof(repository));
-        _hubContext = hubContext ?? throw new ArgumentNullException(nameof(hubContext));
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-    }
+    private readonly IGenericRepository<Notification, Guid> _repository = repository ?? throw new ArgumentNullException(nameof(repository));
+    private readonly IHubContext<NotificationHub, INotificationClient> _hubContext = hubContext ?? throw new ArgumentNullException(nameof(hubContext));
+    private readonly ILogger<NotificationService> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
     /// <summary>
     /// Sends a notification to a specific user.
