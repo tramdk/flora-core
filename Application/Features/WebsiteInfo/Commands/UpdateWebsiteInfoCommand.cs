@@ -11,5 +11,9 @@ public record UpdateWebsiteInfoCommand(
     string Email,
     string PhoneNumber,
     string TaxNumber,
-    string Location
-) : IRequest;
+    string Location,
+    string? ContentConfig = null
+) : IRequest
+{
+    // ThrowIfNull
+}

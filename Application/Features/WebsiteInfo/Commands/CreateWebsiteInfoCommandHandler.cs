@@ -33,6 +33,7 @@ public class CreateWebsiteInfoCommandHandler(IWebsiteInfoRepository repository) 
             PhoneNumber = request.PhoneNumber,
             TaxNumber = request.TaxNumber,
             Location = request.Location,
+            ContentConfig = request.ContentConfig,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };

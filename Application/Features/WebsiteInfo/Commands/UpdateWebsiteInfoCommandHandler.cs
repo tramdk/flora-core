@@ -28,6 +28,7 @@ public class UpdateWebsiteInfoCommandHandler(IWebsiteInfoRepository repository, 
         existing.PhoneNumber = request.PhoneNumber;
         existing.TaxNumber = request.TaxNumber;
         existing.Location = request.Location;
+        existing.ContentConfig = request.ContentConfig;
         existing.UpdatedAt = DateTime.UtcNow;
 
         await _repository.UpdateAsync(existing);

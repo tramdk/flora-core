@@ -3017,6 +3017,10 @@
           "location": {
             "type": "string",
             "nullable": true
+          },
+          "contentConfig": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -3721,6 +3725,10 @@
             "nullable": true
           },
           "location": {
+            "type": "string",
+            "nullable": true
+          },
+          "contentConfig": {
             "type": "string",
             "nullable": true
           }

@@ -12,6 +12,7 @@ public class WebsiteInfo
     public string PhoneNumber { get; set; } = string.Empty;
     public string TaxNumber { get; set; } = string.Empty;
     public string Location { get; set; } = string.Empty;
+    public string? ContentConfig { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }

@@ -28,7 +28,7 @@ services:
       - DatabaseProvider=PostgreSQL
       - ConnectionStrings__DefaultConnection=Host=db;Database=${DB_NAME:-blogs};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-password}
       - ConnectionStrings__Redis=redis:6379
-      - JWT__Secret=${JWT_SECRET}
+      - JWT__Secret=${Jwt__Secret}
       - SEED_DATA=${SEED_DATA:-true}
       - Cloudinary__CloudName=${CLOUDINARY_CLOUD_NAME}
       - Cloudinary__ApiKey=${CLOUDINARY_API_KEY}

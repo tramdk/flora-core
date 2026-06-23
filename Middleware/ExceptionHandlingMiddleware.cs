@@ -35,14 +35,22 @@ public class ExceptionHandlingMiddleware
     /// <param name="context">The HTTP context.</param>
     public async Task InvokeAsync(HttpContext context)
     {
-        try
+        if (context.Request.Headers.TryGetValue("X-Trace-Id", out var traceIdHeader) && !string.IsNullOrEmpty(traceIdHeader))
         {
-            await _next(context);
+            context.TraceIdentifier = traceIdHeader.ToString();
         }
-        catch (Exception ex)
+
+        using (Serilog.Context.LogContext.PushProperty("TraceId", context.TraceIdentifier))
         {
-            _logger.LogError(ex, "An unhandled exception has occurred.");
-            await HandleExceptionAsync(context, ex);
+            try
+            {
+                await _next(context);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "An unhandled exception has occurred.");
+                await HandleExceptionAsync(context, ex);
+            }
         }
     }
 
@@ -139,6 +147,8 @@ public class ExceptionHandlingMiddleware
                 }
                 break;
         }
+
+        problemDetails.Extensions["traceId"] = context.TraceIdentifier;
 
         context.Response.StatusCode = statusCode;
         await context.Response.WriteAsync(JsonSerializer.Serialize(problemDetails, SerializerOptions));

@@ -54,6 +54,19 @@ public static class ServiceCollectionExtensions
             {
                 OnMessageReceived = context =>
                 {
+                    // 1. Try to read from Authorization header first (default behavior)
+                    var authHeader = context.Request.Headers["Authorization"].ToString();
+                    if (string.IsNullOrEmpty(authHeader))
+                    {
+                        // 2. Fallback to HttpOnly cookie
+                        var cookieToken = context.Request.Cookies["chinchin_token"];
+                        if (!string.IsNullOrEmpty(cookieToken))
+                        {
+                            context.Token = cookieToken;
+                        }
+                    }
+
+                    // 3. Fallback for SignalR hubs
                     var accessToken = context.Request.Query["access_token"];
                     var path = context.HttpContext.Request.Path;
                     if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs"))

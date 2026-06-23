@@ -10,5 +10,9 @@ public record CreateWebsiteInfoCommand(
     string Email,
     string PhoneNumber,
     string TaxNumber,
-    string Location
-) : IRequest<Guid>;
+    string Location,
+    string? ContentConfig = null
+) : IRequest<Guid>
+{
+    // ThrowIfNull
+}

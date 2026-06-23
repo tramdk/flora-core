@@ -12,12 +12,13 @@ import copy
 
 
 class LLMRouter:
-    def __init__(self, provider: str, api_key: str, model_name: str, log_file: str, mock_mode: bool):
+    def __init__(self, provider: str, api_key: str, model_name: str, log_file: str, mock_mode: bool, on_token_usage=None):
         self.provider = provider
         self.api_key = api_key
         self.model_name = model_name
         self.log_file = log_file
         self.mock_mode = mock_mode
+        self.on_token_usage = on_token_usage
         self.gemini_caches = {}
         self.client = None
         self.current_role = "Planner"
@@ -181,7 +182,16 @@ class LLMRouter:
 
     def _normalize_gemini_response(self, response) -> dict:
         """Chuẩn hóa response từ Gemini API sang định dạng thống nhất."""
-        result = {"thought": "", "tool_calls": [], "raw_text": ""}
+        result = {"thought": "", "tool_calls": [], "raw_text": "", "usage": None}
+        
+        # Extract usage metadata
+        usage = getattr(response, 'usage_metadata', None)
+        if usage:
+            result["usage"] = {
+                "input_tokens": getattr(usage, 'prompt_token_count', 0),
+                "output_tokens": getattr(usage, 'candidates_token_count', 0),
+                "cached_tokens": getattr(usage, 'cached_content_token_count', 0),
+            }
         
         candidate = response.candidates[0] if response.candidates else None
         if not candidate or not candidate.content or not candidate.content.parts:
@@ -205,7 +215,16 @@ class LLMRouter:
 
     def _normalize_openai_response(self, response) -> dict:
         """Chuẩn hóa response từ OpenAI/DeepSeek API sang định dạng thống nhất."""
-        result = {"thought": "", "tool_calls": [], "raw_text": ""}
+        result = {"thought": "", "tool_calls": [], "raw_text": "", "usage": None}
+        
+        # Extract usage metadata
+        usage = getattr(response, 'usage', None)
+        if usage:
+            result["usage"] = {
+                "input_tokens": getattr(usage, 'prompt_tokens', 0),
+                "output_tokens": getattr(usage, 'completion_tokens', 0),
+                "cached_tokens": 0,
+            }
         
         choice = response.choices[0]
         message = choice.message
@@ -233,7 +252,17 @@ class LLMRouter:
 
     def _normalize_claude_response(self, response) -> dict:
         """Chuẩn hóa response từ Claude API sang định dạng thống nhất."""
-        result = {"thought": "", "tool_calls": [], "raw_text": ""}
+        result = {"thought": "", "tool_calls": [], "raw_text": "", "usage": None}
+        
+        # Extract usage metadata
+        usage = getattr(response, 'usage', None)
+        if usage:
+            cache_read = getattr(usage, 'cache_read_input_tokens', 0) or 0
+            result["usage"] = {
+                "input_tokens": getattr(usage, 'input_tokens', 0),
+                "output_tokens": getattr(usage, 'output_tokens', 0),
+                "cached_tokens": cache_read,
+            }
         
         for block in response.content:
             if block.type == "text":
@@ -360,6 +389,8 @@ class LLMRouter:
             print(log_msg)
             with open(self.log_file, "a", encoding="utf-8") as f:
                 f.write(log_msg)
+            if self.on_token_usage:
+                self.on_token_usage(prompt_tokens, completion_tokens, cached_tokens)
                 
         return self._normalize_gemini_response(response)
 
@@ -405,6 +436,8 @@ class LLMRouter:
             print(log_msg)
             with open(self.log_file, "a", encoding="utf-8") as f:
                 f.write(log_msg)
+            if self.on_token_usage:
+                self.on_token_usage(input_tokens, output_tokens, cache_read)
                 
         return self._normalize_claude_response(response)
 
@@ -450,6 +483,23 @@ class LLMRouter:
         }
         
         response = self.client.chat.completions.create(**kwargs)
+        
+        # Log usage
+        usage = getattr(response, 'usage', None)
+        if usage:
+            prompt_tokens = getattr(usage, 'prompt_tokens', 0)
+            completion_tokens = getattr(usage, 'completion_tokens', 0)
+            log_msg = (
+                f"\n📊 [OPENAI/DEEPSEEK API USAGE]:\n"
+                f"   ├─ 📥 Input Tokens: {prompt_tokens}\n"
+                f"   └─ 📤 Output Tokens: {completion_tokens}\n"
+            )
+            print(log_msg)
+            with open(self.log_file, "a", encoding="utf-8") as f:
+                f.write(log_msg)
+            if self.on_token_usage:
+                self.on_token_usage(prompt_tokens, completion_tokens, 0)
+                
         return self._normalize_openai_response(response)
 
     # =========================================================================
@@ -542,6 +592,8 @@ class LLMRouter:
                         print(log_msg)
                         with open(self.log_file, "a", encoding="utf-8") as f:
                             f.write(log_msg)
+                        if self.on_token_usage:
+                            self.on_token_usage(prompt_tokens, completion_tokens, cached_tokens)
                             
                     response_text = response.text if hasattr(response, 'text') else str(response)
                     if response_text is None:
@@ -595,6 +647,8 @@ class LLMRouter:
                         print(log_msg)
                         with open(self.log_file, "a", encoding="utf-8") as f:
                             f.write(log_msg)
+                        if self.on_token_usage:
+                            self.on_token_usage(input_tokens, output_tokens, cache_read)
 
                     return response.content[0].text
                 else:
@@ -610,6 +664,22 @@ class LLMRouter:
                     if stop_sequences:
                         kwargs["stop"] = stop_sequences
                     response = self.client.chat.completions.create(**kwargs)
+                    
+                    usage = getattr(response, 'usage', None)
+                    if usage:
+                        prompt_tokens = getattr(usage, 'prompt_tokens', 0)
+                        completion_tokens = getattr(usage, 'completion_tokens', 0)
+                        log_msg = (
+                            f"\n📊 [OPENAI/DEEPSEEK API USAGE]:\n"
+                            f"   ├─ 📥 Input Tokens: {prompt_tokens}\n"
+                            f"   └─ 📤 Output Tokens: {completion_tokens}\n"
+                        )
+                        print(log_msg)
+                        with open(self.log_file, "a", encoding="utf-8") as f:
+                            f.write(log_msg)
+                        if self.on_token_usage:
+                            self.on_token_usage(prompt_tokens, completion_tokens, 0)
+                            
                     return response.choices[0].message.content
             except Exception as e:
                 err_msg = str(e)

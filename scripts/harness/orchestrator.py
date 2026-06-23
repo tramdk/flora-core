@@ -26,6 +26,8 @@ from harness.tools import (
     run_dotnet_command,
     read_source_file,
     write_source_file,
+    search_codebase,
+    patch_source,
     extract_compiler_errors,
     extract_test_errors,
     check_csharp_linting
@@ -78,6 +80,29 @@ class AIDeveloperHarness:
         self.auto_approve = auto_approve
         self.pass_threshold = float(os.getenv("GAN_PASS_THRESHOLD") or 7.5)
         self.current_role = "Planner"
+        
+        # === LOOP ENGINEERING: Absolute Budget Ceiling (Improvement 1) ===
+        # Tổng số iterations tối đa trên TOÀN BỘ pipeline (tất cả roles cộng lại).
+        # Không bao giờ vượt quá giá trị này, kể cả khi budget được mở rộng động.
+        self.absolute_max_iterations = int(os.getenv("HARNESS_ABSOLUTE_MAX_ITER") or 120)
+        self.global_iteration_count = 0  # Đếm tổng iterations xuyên suốt pipeline
+        
+        # === LOOP ENGINEERING: Token Cost Tracking (Improvement 2) ===
+        self.token_usage = {
+            "total_input_tokens": 0,
+            "total_output_tokens": 0,
+            "total_cached_tokens": 0,
+            "total_api_calls": 0,
+            "estimated_cost_usd": 0.0,
+            "per_role": {}  # {"Planner": {"input": N, "output": N, "calls": N}, ...}
+        }
+        # Pricing per 1M tokens (configurable via env, defaults for Gemini 2.5 Flash)
+        self.pricing = {
+            "input_per_1m": float(os.getenv("HARNESS_PRICE_INPUT_1M") or 0.15),
+            "output_per_1m": float(os.getenv("HARNESS_PRICE_OUTPUT_1M") or 0.60),
+            "cached_input_per_1m": float(os.getenv("HARNESS_PRICE_CACHED_1M") or 0.0375),
+        }
+        self.cost_ceiling_usd = float(os.getenv("HARNESS_COST_CEILING_USD") or 5.0)
         
         # Per-role iteration budgets (Fix 1: tránh agent loop vô tận)
         self.role_max_iterations = {
@@ -168,7 +193,8 @@ class AIDeveloperHarness:
             api_key=self.api_key,
             model_name=self.model_name,
             log_file=self.log_file,
-            mock_mode=self.mock_mode
+            mock_mode=self.mock_mode,
+            on_token_usage=self.track_token_usage
         )
 
         self.modified_files = set()
@@ -176,13 +202,29 @@ class AIDeveloperHarness:
         self.test_filter_keyword = "test"
         self.test_writer_files = []
         
-        # Pipeline context: structured handoff giữa các pha (Fix 7)
+        # === LOOP ENGINEERING: Structured Handoff Dict (Improvement 5) ===
+        # Structured context truyền giữa các agent phases.
+        # Mỗi phase populate fields của mình, phase sau đọc fields của phase trước.
         self.pipeline_context = {
-            "stub_files_created": [],
-            "test_files_created": [],
-            "production_files_written": [],
-            "last_build_status": None,
-            "last_test_summary": ""
+            # Planner → TestWriter, Developer
+            "plan_decisions": [],           # Key architectural decisions made
+            "files_to_implement": [],       # Production files agent needs to create
+            "stub_files_created": [],       # Skeleton files already created by Planner
+            "risk_lane": "normal",          # Risk classification
+            
+            # TestWriter → Developer
+            "test_files_created": [],       # Test files written
+            "test_signatures": [],          # Method signatures tests expect
+            "test_filter_keyword": "",      # Keyword for dotnet test --filter
+            
+            # Developer → Evaluator
+            "production_files_written": [], # Files developer has written
+            "last_build_status": None,      # True/False/None
+            "last_test_summary": "",        # Summary of last test run
+            
+            # Cross-cutting
+            "enriched_task": "",            # Enriched task description from Enricher
+            "approved_plan": ""             # Full approved plan text
         }
 
     def _build_cache_helper(self):
@@ -190,6 +232,62 @@ class AIDeveloperHarness:
         scripts_dir = os.path.dirname(harness_dir)
         root_dir = os.path.dirname(scripts_dir)
         return build_cache_contents(root_dir, self.policy_content, self.lessons_content, self.skills_contents, self.agents_rules)
+
+    def track_token_usage(self, input_tokens: int, output_tokens: int, cached_tokens: int = 0, role: str = None):
+        """=== LOOP ENGINEERING: Token Cost Tracking (Improvement 2) ===
+        Tích lũy token usage và ước tính chi phí API xuyên suốt pipeline.
+        """
+        role = role or self.current_role
+        
+        # Accumulate totals
+        self.token_usage["total_input_tokens"] += input_tokens
+        self.token_usage["total_output_tokens"] += output_tokens
+        self.token_usage["total_cached_tokens"] += cached_tokens
+        self.token_usage["total_api_calls"] += 1
+        
+        # Per-role tracking
+        if role not in self.token_usage["per_role"]:
+            self.token_usage["per_role"][role] = {"input": 0, "output": 0, "cached": 0, "calls": 0}
+        self.token_usage["per_role"][role]["input"] += input_tokens
+        self.token_usage["per_role"][role]["output"] += output_tokens
+        self.token_usage["per_role"][role]["cached"] += cached_tokens
+        self.token_usage["per_role"][role]["calls"] += 1
+        
+        # Estimate cost
+        fresh_input = input_tokens - cached_tokens
+        cost = (
+            (fresh_input / 1_000_000) * self.pricing["input_per_1m"]
+            + (cached_tokens / 1_000_000) * self.pricing["cached_input_per_1m"]
+            + (output_tokens / 1_000_000) * self.pricing["output_per_1m"]
+        )
+        self.token_usage["estimated_cost_usd"] += cost
+        
+        # Cost ceiling warning
+        total_cost = self.token_usage["estimated_cost_usd"]
+        if total_cost >= self.cost_ceiling_usd:
+            print(f"\n🚨 [COST CEILING]: Chi phí ước tính ${total_cost:.4f} đã vượt ngưỡng ${self.cost_ceiling_usd:.2f}!")
+            print(f"   Pipeline sẽ tiếp tục nhưng cần chú ý chi phí.")
+        elif total_cost >= self.cost_ceiling_usd * 0.8:
+            print(f"\n⚠️ [COST WARNING]: Chi phí ước tính ${total_cost:.4f} đã đạt 80% ngưỡng ${self.cost_ceiling_usd:.2f}.")
+
+    def print_token_summary(self):
+        """In tóm tắt chi phí token cuối pipeline."""
+        usage = self.token_usage
+        print(f"\n{'='*60}")
+        print(f"💰 TOKEN USAGE & COST SUMMARY")
+        print(f"{'='*60}")
+        print(f"   📥 Total Input Tokens:  {usage['total_input_tokens']:,}")
+        print(f"   📤 Total Output Tokens: {usage['total_output_tokens']:,}")
+        print(f"   ♻️  Total Cached Tokens: {usage['total_cached_tokens']:,}")
+        print(f"   📞 Total API Calls:     {usage['total_api_calls']}")
+        print(f"   💵 Estimated Cost:      ${usage['estimated_cost_usd']:.4f}")
+        print(f"   🌡️  Cost Ceiling:        ${self.cost_ceiling_usd:.2f}")
+        
+        if usage["per_role"]:
+            print(f"\n   📊 Per-Role Breakdown:")
+            for role, data in usage["per_role"].items():
+                print(f"      {role}: {data['input']:,} in / {data['output']:,} out / {data['calls']} calls")
+        print(f"{'='*60}\n")
 
     def extract_test_filter_keyword(self, plan: str, task_description: str) -> str:
         """Trích xuất keyword để filter test từ plan hoặc task description."""
@@ -601,6 +699,7 @@ class AIDeveloperHarness:
         if is_infinite:
             effective_max = 999999
         print(f"📊 [Harness]: Budget cho {role}: " + ("vô hạn (loop tới khi xong)" if is_infinite else f"tối đa {effective_max} iterations"))
+        print(f"📊 [Harness]: Global iterations: {self.global_iteration_count}/{self.absolute_max_iterations}")
         
         # Khởi tạo messages array với tin nhắn user đầu tiên
         messages = [
@@ -608,6 +707,12 @@ class AIDeveloperHarness:
         ]
         
         while self.iteration_count < effective_max:
+            # === LOOP ENGINEERING: Absolute Budget Ceiling (Improvement 1) ===
+            if self.global_iteration_count >= self.absolute_max_iterations:
+                print(f"\n🚨 [ABSOLUTE CEILING]: Đạt giới hạn tuyệt đối {self.absolute_max_iterations} iterations trên toàn pipeline.")
+                print(f"   Dừng agent {role} để bảo vệ chi phí. Không có budget expansion nào có thể vượt qua giới hạn này.")
+                return ""
+            
             if self.iteration_count > 0:
                 time.sleep(2)
             
@@ -642,6 +747,7 @@ class AIDeveloperHarness:
                     "content": micro_prompt
                 })
                 self.iteration_count += 1
+                self.global_iteration_count += 1  # Absolute ceiling counter
                 continue
             
             # Lấy tool call đầu tiên (chỉ xử lý 1 tool mỗi lượt)
@@ -969,6 +1075,14 @@ class AIDeveloperHarness:
                                     self.modified_files.add(os.path.abspath(filepath))
                                     if role == "Developer":
                                         self.write_count_without_build += 1
+                                        if filepath not in self.pipeline_context["production_files_written"]:
+                                            self.pipeline_context["production_files_written"].append(filepath)
+                                    elif role == "Planner":
+                                        if filepath.endswith(".cs") and filepath not in self.pipeline_context["stub_files_created"]:
+                                            self.pipeline_context["stub_files_created"].append(filepath)
+                                    elif role == "TestWriter":
+                                        if filepath not in self.pipeline_context["test_files_created"]:
+                                            self.pipeline_context["test_files_created"].append(filepath)
                                     # Auto-reload AGENTS.md nếu agent vừa ghi vào nó
                                     abs_written = os.path.abspath(filepath)
                                     if abs_written == os.path.abspath(self.agents_md_path):
@@ -1028,12 +1142,109 @@ class AIDeveloperHarness:
                             next_actions=["Dựa trên feedback chi tiết trong DETAILS, hãy chỉnh sửa lại."],
                             artifacts=["feedback_from_evaluator"]
                         )
+                elif action_name == "search_codebase":
+                    query = action_args.get("query", "")
+                    file_glob = action_args.get("file_glob", "*.cs")
+                    
+                    if not query:
+                        observation = format_observation(
+                            status="ERROR",
+                            summary="search_codebase missing query parameter",
+                            details="Hãy cung cấp query (pattern cần tìm).",
+                            next_actions=["Gọi lại search_codebase với query hợp lệ."]
+                        )
+                    else:
+                        results = search_codebase(query, file_glob)
+                        match_count = len([l for l in results.splitlines() if l.strip() and not l.startswith("...")])
+                        observation = format_observation(
+                            status="SUCCESS",
+                            summary=f"Tìm kiếm '{query}' trong {file_glob}: {match_count} kết quả.",
+                            details=results,
+                            next_actions=["Dùng view_source để đọc chi tiết file quan tâm, hoặc tiếp tục search với query khác."]
+                        )
+                
+                elif action_name == "patch_source":
+                    filepath = action_args.get("file_path", "")
+                    search_text = action_args.get("search_text", "")
+                    replace_text = action_args.get("replace_text", "")
+                    
+                    if not filepath or not search_text:
+                        observation = format_observation(
+                            status="ERROR",
+                            summary="patch_source missing parameters",
+                            details="Cần cung cấp đầy đủ: file_path, search_text, replace_text.",
+                            next_actions=["Gọi lại patch_source với đầy đủ tham số."]
+                        )
+                    elif not is_path_safe(filepath, root_dir):
+                        observation = format_observation(
+                            status="ERROR",
+                            summary="Lỗi bảo mật Harness.",
+                            details="Nghiêm cấm sửa tệp tin nằm ngoài thư mục gốc dự án.",
+                            next_actions=["Chỉ sửa file trong thư mục dự án."]
+                        )
+                    elif role == "Planner":
+                        observation = format_observation(
+                            status="ERROR",
+                            summary="Ràng buộc vai trò Planner.",
+                            details="Planner không được phép sửa code. Chỉ dùng view_source và finish_task.",
+                            next_actions=["Dùng view_source hoặc finish_task."]
+                        )
+                    elif role == "TestWriter" and not ("test" in filepath.lower() or "tests" in filepath.lower()):
+                        observation = format_observation(
+                            status="ERROR",
+                            summary="Ràng buộc vai trò TestWriter.",
+                            details="TestWriter chỉ được sửa file test.",
+                            next_actions=["Chỉ patch file trong FloraCore.Tests/."]
+                        )
+                    else:
+                        if self.ask_approval(f"Agent muốn patch file: '{filepath}'?"):
+                            res = patch_source(filepath, search_text, replace_text)
+                            status = "SUCCESS" if "thành công" in res.lower() else "ERROR"
+                            if status == "SUCCESS":
+                                self.modified_files.add(os.path.abspath(filepath))
+                                # Track for structured handoff
+                                if role == "Developer" and filepath not in self.pipeline_context["production_files_written"]:
+                                    self.pipeline_context["production_files_written"].append(filepath)
+                                elif role == "Planner":
+                                    if filepath.endswith(".cs") and filepath not in self.pipeline_context["stub_files_created"]:
+                                        self.pipeline_context["stub_files_created"].append(filepath)
+                                elif role == "TestWriter":
+                                    if filepath not in self.pipeline_context["test_files_created"]:
+                                        self.pipeline_context["test_files_created"].append(filepath)
+                                
+                                # Auto-build cho Developer sau khi patch file .cs
+                                if role == "Developer" and filepath.endswith(".cs"):
+                                    print(f"🔨 [Harness Post-Patch Hook]: Auto-building sau khi patch '{os.path.basename(filepath)}'...")
+                                    b_code, b_out = run_dotnet_command("dotnet build FloraCore.csproj")
+                                    if b_code != 0:
+                                        comp_errs = extract_compiler_errors(b_out)
+                                        if comp_errs:
+                                            status = "ERROR"
+                                            res = f"Patch OK nhưng BUILD FAILED ({len(comp_errs)} lỗi):\n" + "\n".join(comp_errs)
+                                    else:
+                                        res = "Patch thành công. Auto-build PASS."
+                            
+                            observation = format_observation(
+                                status=status,
+                                summary=res,
+                                details=res,
+                                artifacts=[filepath],
+                                next_actions=["Tiếp tục sửa code hoặc chạy test."]
+                            )
+                        else:
+                            observation = format_observation(
+                                status="ERROR",
+                                summary="Từ chối patch file.",
+                                details="Người dùng từ chối.",
+                                next_actions=["Thử lại hoặc dùng write_source."]
+                            )
+                
                 else:
                     observation = format_observation(
                         status="ERROR",
                         summary="Công cụ không hợp lệ.",
                         details=f"Không hỗ trợ tool '{action_name}'.",
-                        next_actions=["Chỉ dùng: view_source, write_source, execute_command, finish_task."]
+                        next_actions=["Chỉ dùng: view_source, write_source, patch_source, search_codebase, execute_command, finish_task."]
                     )
             
             # Chèn loop_warning vào observation nếu có
@@ -1090,6 +1301,7 @@ class AIDeveloperHarness:
                     print(f"🚨 [Harness]: finish_task đã bị reject {self.finish_task_rejections} lần. KHÔNG mở rộng budget thêm.")
                 
             self.iteration_count += 1
+            self.global_iteration_count += 1  # Absolute ceiling counter
                 
         print(f"⚠️ [Harness Alert]: Agent {role} đạt giới hạn lặp tối đa.")
         return ""
@@ -1220,13 +1432,19 @@ class AIDeveloperHarness:
         # Loại bỏ các mô tả triết lý rườm rà, tập trung 100% vào action guidelines và rules thực thi.
         tool_usage_note = (
             "\n--- HƯỚNG DẪN TOOL (MỖI LƯỢT GỌI ĐÚNG 1 TOOL) ---\n"
-            "1. codegraph_query(search) — ƯU TIÊN SỬ DỤNG: Tìm kiếm định nghĩa lớp, phương thức, thuộc tính hoặc tệp tin bằng CodeGraph trước khi view_source.\n"
-            "2. codegraph_get_context(task) — ƯU TIÊN SỬ DỤNG: Thu thập toàn bộ ngữ cảnh, tệp tin và cấu trúc liên quan đến tác vụ kỹ thuật cụ thể.\n"
-            "3. view_source(file_path, start_line?, end_line?) — Đọc source file (phân trang dòng nếu file dài).\n"
-            "4. write_source(file_path, content) — Ghi mới hoặc ghi đè file.\n"
-            "5. execute_command(command) — Chạy build/test/clean hoặc git status/diff/add.\n"
-            "6. finish_task(summary) — Báo cáo kết thúc pha.\n"
-            "🧠 NGUYÊN TẮC: ĐỒNG BỘ & ĐỌC TRƯỚC KHI GHI (luôn sử dụng codegraph_query/codegraph_get_context đầu tiên để định vị symbol, sau đó view_source trước khi write). Không đoán mò signature. Một bước một hành động.\n"
+            "1. search_codebase(query, file_glob?) — TÌM KIẾM NHANH: Grep pattern trong codebase. Tiết kiệm token hơn view_source.\n"
+            "2. codegraph_query(search) — Tìm kiếm định nghĩa lớp, phương thức bằng CodeGraph.\n"
+            "3. codegraph_get_context(task) — Thu thập ngữ cảnh liên quan đến tác vụ kỹ thuật.\n"
+            "4. view_source(file_path, start_line?, end_line?) — Đọc source file (phân trang dòng nếu file dài).\n"
+            "5. patch_source(file_path, search_text, replace_text) — SỬA PHẪU THUẬT: Thay thế đoạn text trong file. TIẾT KIỆM TOKEN hơn write_source.\n"
+            "6. write_source(file_path, content) — Ghi mới hoặc ghi đè TOÀN BỘ file (chỉ dùng khi tạo file mới hoặc thay đổi >50% nội dung).\n"
+            "7. execute_command(command) — Chạy build/test/clean hoặc git status/diff/add.\n"
+            "8. finish_task(summary) — Báo cáo kết thúc pha.\n"
+            "🧠 NGUYÊN TẮC: TÌM TRƯỚC KHI ĐỌC, ĐỌC TRƯỚC KHI GHI.\n"
+            "   - Bước 1: search_codebase/codegraph_query để định vị symbol.\n"
+            "   - Bước 2: view_source để đọc chi tiết.\n"
+            "   - Bước 3: patch_source (sửa nhỏ) hoặc write_source (tạo mới/ghi đè toàn bộ).\n"
+            "   Một bước một hành động. Không đoán mò signature.\n"
         )
 
         architecture_guidelines = (
@@ -1331,6 +1549,9 @@ class AIDeveloperHarness:
                     production_files.append(cleaned)
             self.planner_production_files = production_files
             self.test_filter_keyword = self.extract_test_filter_keyword(plan_content, task_description)
+            self.pipeline_context["files_to_implement"] = self.planner_production_files
+            self.pipeline_context["approved_plan"] = plan_content
+            self.pipeline_context["risk_lane"] = risk_lane
             print(f"🔑 [Harness]: Test filter keyword: '{self.test_filter_keyword}'")
             if production_files:
                 print(f"📋 [Harness]: Phát hiện {len(production_files)} file production code cần tạo trong kế hoạch: {', '.join(production_files)}")
@@ -1355,6 +1576,8 @@ class AIDeveloperHarness:
                                     production_files.append(cleaned)
                             self.planner_production_files = production_files
                             self.test_filter_keyword = self.extract_test_filter_keyword(plan_content, task_description)
+                            self.pipeline_context["files_to_implement"] = self.planner_production_files
+                            self.pipeline_context["approved_plan"] = plan_content
                             print(f"🔄 [Harness Reloaded]: Cập nhật Test filter keyword: '{self.test_filter_keyword}'")
                             if production_files:
                                 print(f"📋 [Harness Reloaded]: Cập nhật danh sách {len(production_files)} file production: {', '.join(production_files)}")
@@ -1387,6 +1610,28 @@ class AIDeveloperHarness:
             self.test_writer_files = list(set(found_test_files))
             if self.test_writer_files:
                 print(f"📋 [Harness]: Phát hiện {len(self.test_writer_files)} file test: {', '.join(self.test_writer_files)}")
+                for tf in self.test_writer_files:
+                    if tf not in self.pipeline_context["test_files_created"]:
+                        self.pipeline_context["test_files_created"].append(tf)
+                
+                # Extract test signatures
+                sigs = []
+                for tf in self.test_writer_files:
+                    tf_path = os.path.join(root_dir, tf) if not os.path.isabs(tf) else tf
+                    if os.path.exists(tf_path):
+                        try:
+                            with open(tf_path, 'r', encoding='utf-8') as f:
+                                tf_content = f.read()
+                            # Match Fact/Theory test methods
+                            matches = re.findall(
+                                r"\[(Fact|Theory)\]\s*(?:[\w\s\(\)\=\,\.\"]+\s*)?(?:public\s+)?(?:async\s+Task|void)\s+(\w+)",
+                                tf_content
+                            )
+                            sigs.extend([m[1] for m in matches if m[1]])
+                        except Exception:
+                            pass
+                self.pipeline_context["test_signatures"] = list(set(sigs))
+                self.pipeline_context["test_filter_keyword"] = self.test_filter_keyword
             
             if self.mock_mode:
                 approved = self.ask_approval("Bạn có phê duyệt bộ Test Cases này không?", force_ask=True)
@@ -1453,6 +1698,7 @@ class AIDeveloperHarness:
             print("⚙️ Chạy build hệ thống (production code)...")
             code, out = run_dotnet_command("dotnet build FloraCore.csproj")
             if code != 0:
+                self.pipeline_context["last_build_status"] = False
                 errs = extract_compiler_errors(out)
                 missing_files = []
                 if hasattr(self, 'planner_production_files') and self.planner_production_files:
@@ -1469,6 +1715,7 @@ class AIDeveloperHarness:
                 
                 return False, "PRODUCTION CODE BUILD FAILED. Hãy viết THÊM production code hoặc sửa lỗi compiler trước khi build lại. HINT: Lỗi namespace/convention? Dùng `view_source('CODING_POLICY.md')` để xem rules. Xem lỗi compiler bên dưới để định hướng file nào cần tạo/sửa:\n" + "\n".join(errs)
                 
+            self.pipeline_context["last_build_status"] = True
             print("🧹 Kiểm tra Coding Policy tĩnh...")
             val_code, val_out = self.run_policy_validation()
             if val_code != 0:
@@ -1485,6 +1732,7 @@ class AIDeveloperHarness:
                         if line.strip().startswith("🏷️"):
                             tags.add(line.strip())
                 tag_summary = "\n".join(sorted(tags)) if tags else ""
+                self.pipeline_context["last_test_summary"] = f"FAIL:\n{(tag_summary + '\n\n' if tag_summary else '') + '\n'.join(errs)}"
                 return False, "TESTS FAIL: Sửa tất cả lỗi dưới đây TRONG MỘT LẦN (không chạy lại test sau mỗi lỗi).\n\n" + (tag_summary + "\n\n" if tag_summary else "") + "\n".join(errs)
                 
             score, report = self.run_gan_evaluation(task_description)
@@ -1500,6 +1748,7 @@ class AIDeveloperHarness:
                 
             if score >= self.pass_threshold:
                 print("\n✅ Vượt qua vòng thẩm định chất lượng!")
+                self.pipeline_context["last_test_summary"] = f"PASS (Score: {score:.2f}/10.0)"
                 return True, ""
             else:
                 rollback_log = self.selective_rollback()
@@ -1608,6 +1857,8 @@ class AIDeveloperHarness:
                 print("\n✨ [Harness Enricher (MOCK)]: Sử dụng bản đặc tả giả lập.")
                 print(enriched_task_description)
             
+        self.pipeline_context["enriched_task"] = enriched_task_description
+        
         # --- CHẠY PHA 1: PLANNING ---
         self.current_plan = ""
         plan = self.run_agent_loop(
@@ -1666,3 +1917,22 @@ class AIDeveloperHarness:
             self.update_test_matrix(task_description, all_test_files)
         
         self.distill_and_persist_lessons(task_description)
+        
+        # === LOOP ENGINEERING: Token Cost Summary (Improvement 2) ===
+        self.print_token_summary()
+        
+        # Save token report to evals directory
+        try:
+            token_report_path = os.path.join(self.evals_dir, "token_usage_report.json")
+            import json
+            with open(token_report_path, "w", encoding="utf-8") as f:
+                json.dump({
+                    "task": task_description,
+                    "token_usage": self.token_usage,
+                    "pricing": self.pricing,
+                    "absolute_ceiling": self.absolute_max_iterations,
+                    "global_iterations_used": self.global_iteration_count,
+                }, f, ensure_ascii=False, indent=2)
+            print(f"💾 [Harness]: Token report saved to {token_report_path}")
+        except Exception as e:
+            print(f"⚠️ [Harness]: Lỗi ghi token report: {e}")

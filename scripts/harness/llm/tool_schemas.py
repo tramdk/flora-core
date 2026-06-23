@@ -88,6 +88,52 @@ TOOLS_SCHEMA = [
     {
         "type": "function",
         "function": {
+            "name": "search_codebase",
+            "description": "Tìm kiếm nhanh một pattern (tên class, method, property, string) trong toàn bộ codebase. Trả về danh sách file:dòng:nội_dung. Tiết kiệm token hơn nhiều so với đọc từng file bằng view_source.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Pattern cần tìm (ví dụ: 'IProductRepository', 'ProcessPaymentAsync', 'class Order')"
+                    },
+                    "file_glob": {
+                        "type": "string",
+                        "description": "Glob lọc file (mặc định: '*.cs'). Ví dụ: '*.cs', '*.json', '*.md'"
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "patch_source",
+            "description": "Sửa đổi phẫu thuật (surgical edit): Tìm một đoạn text chính xác trong file và thay thế bằng nội dung mới. TIẾT KIỆM TOKEN hơn write_source vì không cần gửi toàn bộ nội dung file. Chỉ dùng khi file đã tồn tại và bạn chỉ muốn sửa một phần nhỏ.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Đường dẫn tới file cần sửa"
+                    },
+                    "search_text": {
+                        "type": "string",
+                        "description": "Đoạn text CHÍNH XÁC cần tìm và thay thế (copy từ view_source output)"
+                    },
+                    "replace_text": {
+                        "type": "string",
+                        "description": "Nội dung mới thay thế cho search_text"
+                    }
+                },
+                "required": ["file_path", "search_text", "replace_text"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "codegraph_query",
             "description": "Tìm kiếm định nghĩa lớp, phương thức, thuộc tính hoặc tệp tin trong toàn bộ codebase bằng CodeGraph.",
             "parameters": {
@@ -120,3 +166,4 @@ TOOLS_SCHEMA = [
         }
     }
 ]
+
