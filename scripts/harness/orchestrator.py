@@ -6,6 +6,7 @@ import json
 import time
 import subprocess
 import copy
+from datetime import datetime
 from collections import Counter
 
 try:
@@ -103,6 +104,9 @@ class AIDeveloperHarness:
             "cached_input_per_1m": float(os.getenv("HARNESS_PRICE_CACHED_1M") or 0.0375),
         }
         self.cost_ceiling_usd = float(os.getenv("HARNESS_COST_CEILING_USD") or 5.0)
+        
+        # === LOOP ENGINEERING: Budget Expansion Cap (Improvement 6) ===
+        self.max_budget_expansion_per_role = int(os.getenv("HARNESS_MAX_BUDGET_EXPANSION") or 20)
         
         # Per-role iteration budgets (Fix 1: tránh agent loop vô tận)
         self.role_max_iterations = {
@@ -288,6 +292,80 @@ class AIDeveloperHarness:
             for role, data in usage["per_role"].items():
                 print(f"      {role}: {data['input']:,} in / {data['output']:,} out / {data['calls']} calls")
         print(f"{'='*60}\n")
+
+    def log_event(self, event_type: str, data: dict):
+        """=== STRUCTURED LOGGING (Improvement 5) ===
+        Ghi structured event log (JSON Lines) song song với text log.
+        Cho phép phân tích bottleneck, success rate, average iterations sau này.
+        """
+        event = {
+            "ts": datetime.now().isoformat(),
+            "role": self.current_role,
+            "iter": self.iteration_count,
+            "global_iter": self.global_iteration_count,
+            "type": event_type,
+            **data
+        }
+        try:
+            events_path = os.path.join(self.evals_dir, "events.jsonl")
+            with open(events_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(event, ensure_ascii=False) + "\n")
+        except Exception:
+            pass  # Logging không được phép crash pipeline
+
+    def save_checkpoint(self, phase: str):
+        """=== CHECKPOINT/RESUME (Improvement 3) ===
+        Persist pipeline state để resume nếu crash.
+        """
+        checkpoint = {
+            "phase": phase,
+            "pipeline_context": self.pipeline_context,
+            "current_plan": getattr(self, 'current_plan', ''),
+            "test_writer_files": list(getattr(self, 'test_writer_files', [])),
+            "planner_production_files": list(getattr(self, 'planner_production_files', [])),
+            "modified_files": list(self.modified_files),
+            "token_usage": self.token_usage,
+            "global_iteration_count": self.global_iteration_count,
+            "timestamp": datetime.now().isoformat()
+        }
+        try:
+            path = os.path.join(self.evals_dir, "checkpoint.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(checkpoint, f, ensure_ascii=False, indent=2)
+            print(f"💾 [Checkpoint]: Đã lưu trạng thái pipeline sau pha '{phase}'.")
+        except Exception as e:
+            print(f"⚠️ [Checkpoint Error]: Không thể lưu checkpoint: {e}")
+
+    def load_checkpoint(self):
+        """Load checkpoint nếu có, để resume pipeline."""
+        path = os.path.join(self.evals_dir, "checkpoint.json")
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                return None
+        return None
+
+    def restore_from_checkpoint(self, checkpoint: dict):
+        """Khôi phục state từ checkpoint dict."""
+        self.pipeline_context = checkpoint.get("pipeline_context", self.pipeline_context)
+        self.current_plan = checkpoint.get("current_plan", "")
+        self.test_writer_files = checkpoint.get("test_writer_files", [])
+        self.planner_production_files = checkpoint.get("planner_production_files", [])
+        self.modified_files = set(checkpoint.get("modified_files", []))
+        self.token_usage = checkpoint.get("token_usage", self.token_usage)
+        self.global_iteration_count = checkpoint.get("global_iteration_count", 0)
+        print(f"🔄 [Checkpoint]: Đã khôi phục state từ pha '{checkpoint.get('phase', '?')}' (saved at {checkpoint.get('timestamp', '?')}).")
+
+    def clear_checkpoint(self):
+        """Xóa checkpoint sau khi pipeline hoàn thành thành công."""
+        path = os.path.join(self.evals_dir, "checkpoint.json")
+        if os.path.exists(path):
+            try:
+                os.remove(path)
+            except Exception:
+                pass
 
     def extract_test_filter_keyword(self, plan: str, task_description: str) -> str:
         """Trích xuất keyword để filter test từ plan hoặc task description."""
@@ -562,27 +640,84 @@ class AIDeveloperHarness:
 
     def condense_message_history(self, messages: list[dict]) -> list[dict]:
         """
-        Nén lịch sử hội thoại dạng mảng messages để tiết kiệm token.
-        Giữ nguyên tin nhắn user ban đầu và 3 lượt gần nhất (6 messages).
-        Thu gọn cả assistant thoughts lẫn tool results cho các lượt cũ hơn.
+        === TIERED CONTEXT CONDENSATION (Improvement 1) ===
+        Nén lịch sử hội thoại dạng mảng messages theo 3 tầng thay vì 2:
+        
+        TIER 1 (oldest):  Ultra-compact — chỉ giữ action timeline (1 dòng tóm tắt)
+        TIER 2 (middle):  Medium — giữ assistant thought ngắn + tool status
+        TIER 3 (recent):  Full fidelity — 8 messages gần nhất giữ nguyên 100%
+        
+        Lý do: arXiv:2605.26731 chỉ ra action timeline injection giúp agent nhớ
+        trajectory tốt hơn so với chỉ giữ raw messages gần nhất.
         """
-        if len(messages) <= 8:
+        if len(messages) <= 10:
             return messages
         
         condensed = []
         # Luôn giữ nguyên tin nhắn user đầu tiên (chứa context + task description)
         condensed.append(messages[0])
         
-        # Xác định các cặp (assistant + tool) messages ở giữa để nén
-        # Giữ nguyên 6 messages cuối (~ 3 lượt tool call gần nhất)
-        middle_messages = messages[1:-6]
-        tail_messages = messages[-6:]
+        # Xác định ranh giới 3 tầng
+        # TIER 3: 8 messages cuối (~ 4 lượt gần nhất) — giữ nguyên
+        # TIER 2: 8 messages trước TIER 3 — nén medium
+        # TIER 1: Mọi thứ trước TIER 2 — ultra-compact timeline
+        tier3_start = max(1, len(messages) - 8)
+        tier2_start = max(1, len(messages) - 16)
         
-        for msg in middle_messages:
+        tier1_msgs = messages[1:tier2_start]
+        tier2_msgs = messages[tier2_start:tier3_start]
+        tier3_msgs = messages[tier3_start:]
+        
+        # === TIER 1: Ultra-compact action timeline ===
+        if tier1_msgs:
+            action_timeline = []
+            key_decisions = []  # Giữ lại quyết định kiến trúc quan trọng
+            
+            for msg in tier1_msgs:
+                if msg["role"] == "assistant":
+                    # Trích xuất action names
+                    if msg.get("tool_calls"):
+                        tc = msg["tool_calls"][0]
+                        tool_name = tc["function"]["name"]
+                        args = tc["function"]["arguments"]
+                        if isinstance(args, str):
+                            try:
+                                args = json.loads(args)
+                            except Exception:
+                                args = {}
+                        brief = args.get("file_path") or args.get("command") or args.get("query", "")[:40]
+                        action_timeline.append(f"{tool_name}({brief})")
+                    
+                    # Giữ lại quyết định quan trọng từ thought
+                    thought = msg.get("content", "")
+                    if thought and any(kw in thought.lower() for kw in ["quyết định", "decision", "chiến lược", "strategy", "kiến trúc", "architecture"]):
+                        key_decisions.append(thought[:200])
+                        
+                elif msg["role"] == "tool":
+                    content = msg.get("content", "")
+                    # Chỉ giữ lại error observations (quan trọng cho context)
+                    if "ERROR" in content and "BUILD FAILED" in content:
+                        status_match = re.search(r"STATUS:\s*(\S+)", content)
+                        summary_match = re.search(r"SUMMARY:\s*(.*?)(?=\n|$)", content)
+                        status = status_match.group(1) if status_match else "ERROR"
+                        summary = summary_match.group(1) if summary_match else "Build failed"
+                        key_decisions.append(f"[{status}] {summary}")
+            
+            # Inject timeline as synthetic context message
+            if action_timeline:
+                timeline_text = f"[LỊCH SỬ HÀNH ĐỘNG ĐÃ THỰC HIỆN ({len(action_timeline)} lượt)]: {' → '.join(action_timeline)}"
+                if key_decisions:
+                    timeline_text += f"\n[QUYẾT ĐỊNH QUAN TRỌNG]: " + " | ".join(key_decisions[:3])
+                condensed.append({
+                    "role": "user",
+                    "content": timeline_text
+                })
+        
+        # === TIER 2: Medium condensation ===
+        for msg in tier2_msgs:
             if msg["role"] == "tool":
                 content = msg.get("content", "")
-                # Nén nội dung OBSERVATION quá dài từ các lượt cũ
-                if len(content) > 200:
+                if len(content) > 300:
                     status_match = re.search(r"STATUS:\s*(\S+)", content)
                     summary_match = re.search(r"SUMMARY:\s*(.*?)(?=\n|$)", content)
                     status = status_match.group(1) if status_match else "UNKNOWN"
@@ -599,10 +734,8 @@ class AIDeveloperHarness:
                 else:
                     condensed.append(msg)
             elif msg["role"] == "assistant":
-                # Fix 6: Nén assistant thoughts cũ — chỉ giữ tool_call metadata
                 condensed_msg = copy.deepcopy(msg)
                 if condensed_msg.get("tool_calls"):
-                    # Chỉ giữ tên tool + file_path/command, xóa thought dài
                     tc = condensed_msg["tool_calls"][0]
                     tool_name = tc["function"]["name"]
                     args = tc["function"]["arguments"]
@@ -612,15 +745,20 @@ class AIDeveloperHarness:
                         except Exception:
                             args = {}
                     brief = args.get("file_path") or args.get("command") or args.get("summary", "")[:80]
-                    condensed_msg["content"] = f"[ĐÃ NÉN] {tool_name}({brief})"
-                elif condensed_msg.get("content") and len(condensed_msg["content"]) > 200:
-                    condensed_msg["content"] = condensed_msg["content"][:150] + "... [ĐÃ NÉN]"
+                    # Giữ thought ngắn hơn (300 chars thay vì cắt bỏ hoàn toàn)
+                    thought = condensed_msg.get("content", "")
+                    if thought and len(thought) > 300:
+                        condensed_msg["content"] = thought[:300] + f"... [NÉN] → {tool_name}({brief})"
+                    elif not thought:
+                        condensed_msg["content"] = f"[NÉN] {tool_name}({brief})"
+                elif condensed_msg.get("content") and len(condensed_msg["content"]) > 300:
+                    condensed_msg["content"] = condensed_msg["content"][:250] + "... [ĐÃ NÉN]"
                 condensed.append(condensed_msg)
             else:
                 condensed.append(msg)
         
-        # Giữ nguyên các messages gần nhất (3 lượt đầy đủ)
-        condensed.extend(tail_messages)
+        # === TIER 3: Full fidelity — 8 messages gần nhất ===
+        condensed.extend(tier3_msgs)
         return condensed
 
     def distill_and_persist_lessons(self, task_description: str):
@@ -670,6 +808,54 @@ class AIDeveloperHarness:
             print(f"   └─ 🏁 Báo cáo kết quả:\n      {summary_clean}")
         else:
             print(f"   └─ ⚙️ Tham số: {args}")
+
+    def _execute_read_only_tool(self, tool_name: str, tool_args: dict, role: str, root_dir: str) -> str:
+        """=== PARALLEL TOOL CALLS HELPER (Improvement 2) ===
+        Thực thi một read-only tool và trả về observation string.
+        Chỉ dùng cho tools an toàn: view_source, search_codebase, codegraph_query, codegraph_get_context.
+        """
+        from harness.safety.guardrails import format_observation, is_path_safe
+        from harness.tools.file_ops import read_source_file, search_codebase
+        
+        if tool_name == "view_source":
+            filepath = tool_args.get("file_path", "")
+            start_line = tool_args.get("start_line")
+            end_line = tool_args.get("end_line")
+            
+            if not filepath:
+                return format_observation(status="ERROR", summary="Thiếu file_path.", details="", next_actions=["Cung cấp file_path."])
+            
+            abs_path = os.path.abspath(filepath)
+            if not is_path_safe(abs_path, root_dir):
+                return format_observation(status="ERROR", summary="Path Traversal bị chặn.", details=f"'{filepath}' nằm ngoài thư mục dự án.", next_actions=[])
+            
+            result = read_source_file(abs_path, start_line, end_line)
+            if result.startswith("Lỗi"):
+                return format_observation(status="ERROR", summary=f"Đọc file thất bại: {filepath}", details=result, next_actions=["Kiểm tra lại đường dẫn."])
+            
+            return format_observation(
+                status="SUCCESS",
+                summary=f"Đọc file: {os.path.relpath(abs_path, root_dir)}",
+                details=result,
+                artifacts=[os.path.relpath(abs_path, root_dir)]
+            )
+        
+        elif tool_name == "search_codebase":
+            query = tool_args.get("query", "")
+            file_glob = tool_args.get("file_glob", "*.cs")
+            if not query:
+                return format_observation(status="ERROR", summary="Thiếu query.", details="", next_actions=["Cung cấp query."])
+            results = search_codebase(query, file_glob)
+            return format_observation(status="SUCCESS", summary=f"Tìm kiếm: '{query}'", details=results)
+        
+        elif tool_name in ("codegraph_query", "codegraph_get_context"):
+            query = tool_args.get("search") or tool_args.get("task", "")
+            if not query:
+                return format_observation(status="ERROR", summary=f"{tool_name} missing query.", details="", next_actions=[f"Gọi lại {tool_name} với tham số hợp lệ."])
+            results = search_codebase(query, "*.cs")
+            return format_observation(status="SUCCESS", summary=f"CodeGraph fallback (search_codebase): '{query}'", details=results, next_actions=["Dùng view_source để đọc chi tiết."])
+        
+        return format_observation(status="ERROR", summary=f"Tool '{tool_name}' không phải read-only.", details="", next_actions=[])
 
     def run_agent_loop(self, role: str, system_instruction: str, initial_context: str, on_finish_callback) -> str:
         """Thực thi vòng lặp ReAct (Suy nghĩ -> Hành động -> Quan sát) cho một Agent cụ thể, sử dụng Native Function Calling."""
@@ -750,7 +936,61 @@ class AIDeveloperHarness:
                 self.global_iteration_count += 1  # Absolute ceiling counter
                 continue
             
-            # Lấy tool call đầu tiên (chỉ xử lý 1 tool mỗi lượt)
+            # === PARALLEL TOOL CALLS (Improvement 2) ===
+            # Xử lý nhiều tool calls song song cho read-only tools
+            safe_parallel_tools = {"view_source", "search_codebase", "codegraph_query", "codegraph_get_context"}
+            
+            if len(tool_calls) > 1 and all(tc["function"]["name"] in safe_parallel_tools for tc in tool_calls):
+                # Execute all read-only tools in parallel
+                print(f"⚡ [Harness Parallel]: Xử lý {len(tool_calls)} tool calls song song (read-only)...")
+                self.log_event("parallel_tool_calls", {"count": len(tool_calls), "tools": [tc["function"]["name"] for tc in tool_calls]})
+                
+                # Build combined assistant message with all tool calls
+                assistant_msg = {"role": "assistant"}
+                if thought:
+                    assistant_msg["content"] = thought
+                assistant_msg["tool_calls"] = []
+                
+                for tc in tool_calls:
+                    tc_name = tc["function"]["name"]
+                    tc_args = tc["function"]["arguments"]
+                    if isinstance(tc_args, str):
+                        try:
+                            tc_args = json.loads(tc_args)
+                        except json.JSONDecodeError:
+                            tc_args = {}
+                    
+                    self.print_tool_call(tc, "" if tc != tool_calls[0] else thought)
+                    assistant_msg["tool_calls"].append({
+                        "id": tc["id"],
+                        "function": {"name": tc_name, "arguments": tc_args}
+                    })
+                
+                messages.append(assistant_msg)
+                
+                # Execute each tool and append results
+                for tc in tool_calls:
+                    tc_name = tc["function"]["name"]
+                    tc_args = tc["function"]["arguments"]
+                    if isinstance(tc_args, str):
+                        try:
+                            tc_args = json.loads(tc_args)
+                        except json.JSONDecodeError:
+                            tc_args = {}
+                    
+                    obs = self._execute_read_only_tool(tc_name, tc_args, role, root_dir)
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "name": tc_name,
+                        "content": obs
+                    })
+                
+                self.iteration_count += 1
+                self.global_iteration_count += 1
+                continue
+            
+            # Single tool call path (original behavior)
             tool_call = tool_calls[0]
             action_name = tool_call["function"]["name"]
             action_args = tool_call["function"]["arguments"]
@@ -763,11 +1003,12 @@ class AIDeveloperHarness:
             # Hiển thị tool call
             self.print_tool_call(tool_call, thought)
             
-            # Ghi log
+            # Ghi log + structured event
             with open(self.log_file, "a", encoding="utf-8") as f:
                 f.write(f"\n[{role} Lượt {self.iteration_count}]:\n")
                 f.write(f"THOUGHT: {thought}\n")
                 f.write(f"TOOL CALL: {action_name}({json.dumps(action_args, ensure_ascii=False)[:500]})\n")
+            self.log_event("tool_call", {"tool": action_name, "args_preview": json.dumps(action_args, ensure_ascii=False)[:200]})
             
             # === PHÁT HIỆN VÒNG LẶP (Loop Detection) ===
             # Fingerprint cho loop detection: với view_source thì include filepath (đọc file khác nhau là ok)
@@ -901,8 +1142,14 @@ class AIDeveloperHarness:
                                         if sig_counts[error_codes] >= 4:
                                             print(f"\n🚨 [Harness Loop Warning]: Cùng set lỗi compiler {error_codes} xuất hiện {sig_counts[error_codes]} lần (tổng cộng). Mở rộng budget.")
                                             details += f"\n\n🚨 [CẢNH BÁO VÒNG LẶP HỆ THỐNG]: Cùng set lỗi {error_codes} xuất hiện {sig_counts[error_codes]} lần. Budget đã mở rộng. Hãy đổi chiến thuật! Xem kỹ file test để biết signature đúng.\n"
-                                            effective_max += 10
-                                            print(f"🔄 [Harness]: Mở rộng budget thêm 10 → {effective_max} iterations.")
+                                            # === BUDGET EXPANSION CAP (Improvement 6) ===
+                                            budget_expanded = effective_max - self.role_max_iterations.get(role, self.max_iterations)
+                                            if budget_expanded < self.max_budget_expansion_per_role:
+                                                expansion = min(10, self.max_budget_expansion_per_role - budget_expanded)
+                                                effective_max += expansion
+                                                print(f"🔄 [Harness]: Mở rộng budget thêm {expansion} → {effective_max} iterations.")
+                                            else:
+                                                print(f"🚨 [Harness]: Budget expansion đã đạt ceiling {self.max_budget_expansion_per_role}. Không mở rộng thêm.")
                                 elif "test" in cmd:
                                     test_errs = extract_test_errors(out)
                                     if test_errs:
@@ -919,8 +1166,14 @@ class AIDeveloperHarness:
                                             print(f"\n🚨 [Harness Loop Warning]: Cùng set lỗi test xuất hiện {test_sig_counts[tags_only]} lần (tổng cộng). Mở rộng budget.")
                                             details += f"\n\n🚨 [CẢNH BÁO VÒNG LẶP HỆ THỐNG]: Cùng set lỗi test lặp lại {test_sig_counts[tags_only]} lần. Budget đã mở rộng. Hãy đổi chiến thuật!\n"
                                             details += "Hướng dẫn: dùng `view_source` đọc file test và xem kỹ expected behavior, kiểm tra lại Mock setups.\n"
-                                            effective_max += 10
-                                            print(f"🔄 [Harness]: Mở rộng budget thêm 10 → {effective_max} iterations.")
+                                            # === BUDGET EXPANSION CAP (Improvement 6) ===
+                                            budget_expanded_t = effective_max - self.role_max_iterations.get(role, self.max_iterations)
+                                            if budget_expanded_t < self.max_budget_expansion_per_role:
+                                                expansion_t = min(10, self.max_budget_expansion_per_role - budget_expanded_t)
+                                                effective_max += expansion_t
+                                                print(f"🔄 [Harness]: Mở rộng budget thêm {expansion_t} → {effective_max} iterations.")
+                                            else:
+                                                print(f"🚨 [Harness]: Budget expansion đã đạt ceiling {self.max_budget_expansion_per_role}. Không mở rộng thêm.")
                                         elif test_sig_counts[tags_only] >= 3:
                                                 loop_warning_test = (
                                                     f"\n🚨 [CẢNH BÁO VÒNG LẶP HỆ THỐNG]: Cùng set lỗi test xuất hiện {test_sig_counts[tags_only]} lần. Hãy đổi chiến thuật.\n"
@@ -1239,12 +1492,32 @@ class AIDeveloperHarness:
                                 next_actions=["Thử lại hoặc dùng write_source."]
                             )
                 
+                elif action_name in ("codegraph_query", "codegraph_get_context"):
+                    # === CODEGRAPH FALLBACK HANDLER (Improvement 7) ===
+                    query = action_args.get("search") or action_args.get("task", "")
+                    if not query:
+                        observation = format_observation(
+                            status="ERROR",
+                            summary=f"{action_name} missing query parameter.",
+                            details="Hãy cung cấp search hoặc task parameter.",
+                            next_actions=[f"Gọi lại {action_name} với tham số hợp lệ."]
+                        )
+                    else:
+                        # Fallback: dùng search_codebase thay thế
+                        results = search_codebase(query, "*.cs")
+                        observation = format_observation(
+                            status="SUCCESS",
+                            summary=f"CodeGraph fallback (search_codebase): '{query}'",
+                            details=results,
+                            next_actions=["Dùng view_source để đọc chi tiết file quan tâm."]
+                        )
+                
                 else:
                     observation = format_observation(
                         status="ERROR",
                         summary="Công cụ không hợp lệ.",
                         details=f"Không hỗ trợ tool '{action_name}'.",
-                        next_actions=["Chỉ dùng: view_source, write_source, patch_source, search_codebase, execute_command, finish_task."]
+                        next_actions=["Chỉ dùng: view_source, write_source, patch_source, search_codebase, codegraph_query, codegraph_get_context, execute_command, finish_task."]
                     )
             
             # Chèn loop_warning vào observation nếu có
@@ -1374,6 +1647,28 @@ class AIDeveloperHarness:
         harness_dir = os.path.dirname(os.path.abspath(__file__))
         scripts_dir = os.path.dirname(harness_dir)
         root_dir = os.path.dirname(scripts_dir)
+        
+        # === CHECKPOINT/RESUME (Improvement 3) ===
+        checkpoint = self.load_checkpoint()
+        resume_from_phase = None
+        if checkpoint:
+            phase_name = checkpoint.get('phase', '?')
+            ts = checkpoint.get('timestamp', '?')
+            print(f"\n💾 [Checkpoint]: Phát hiện checkpoint từ pha '{phase_name}' (saved at {ts}).")
+            if not self.mock_mode:
+                try:
+                    user_input = input(f"   Bạn có muốn resume từ pha '{phase_name}'? (y/n): ").strip().lower()
+                    if user_input in ('y', 'yes', ''):
+                        self.restore_from_checkpoint(checkpoint)
+                        resume_from_phase = phase_name
+                    else:
+                        print(f"   Bỏ qua checkpoint, chạy lại từ đầu.")
+                        self.clear_checkpoint()
+                except EOFError:
+                    print(f"   Non-interactive mode: Bỏ qua checkpoint.")
+                    self.clear_checkpoint()
+            else:
+                self.clear_checkpoint()  # Mock mode: always start fresh
         
         # 1. Đọc chính sách lập trình cục bộ
         for p_file in self.policy_files:
@@ -1837,14 +2132,31 @@ class AIDeveloperHarness:
             
             if not self.mock_mode:
                 try:
-                    self.llm_router.current_role = "Enricher"
-                    enriched_task_description = self.llm_router.call_llm(enricher_prompt, enricher_system, self._build_cache_helper)
-                    print("\n✨ [Harness Enricher]: Đã làm giàu yêu cầu thành công!")
-                    print("-------------------------------------------------------------")
-                    print(enriched_task_description)
-                    print("-------------------------------------------------------------\n")
+                    # === ENRICHER UPGRADE (Improvement 9) ===
+                    # Sử dụng run_agent_loop thay vì call_llm (text-only)
+                    # Cho phép Enricher dùng các tool đọc file (view_source, search_codebase, codegraph)
+                    
+                    def on_enricher_finish(summary):
+                        return True, ""  # Không có evaluation cho Enricher
+                        
+                    enriched_task_description = self.run_agent_loop(
+                        role="Enricher",
+                        system_instruction=enricher_system,
+                        initial_context=enricher_prompt + "\n\nHãy dùng các tool (view_source, search_codebase, codegraph) để khảo sát mã nguồn và gọi finish_task(summary) để gửi Bản Đặc Tả Kỹ Thuật (Enriched Prompt) cuối cùng của bạn.",
+                        on_finish_callback=on_enricher_finish
+                    )
+                    
+                    if not enriched_task_description:
+                        print(f"⚠️ [Harness Enricher Warning]: Lỗi làm giàu prompt (Agent trả về rỗng). Sử dụng prompt gốc.")
+                        enriched_task_description = task_description
+                    else:
+                        print("\n✨ [Harness Enricher]: Đã làm giàu yêu cầu thành công!")
+                        print("-------------------------------------------------------------")
+                        print(enriched_task_description)
+                        print("-------------------------------------------------------------\n")
                 except Exception as e:
-                    print(f"⚠️ [Harness Enricher Warning]: Lỗi làm giàu prompt: {e}. Sử dụng prompt gốc.")
+                    print(f"⚠️ [Harness Enricher Warning]: Lỗi vòng lặp Enricher: {e}. Sử dụng prompt gốc.")
+                    enriched_task_description = task_description
             else:
                 enriched_task_description = (
                     f"### BẢN ĐẶC TẢ KỸ THUẬT CHI TIẾT (LÀM GIÀU TỰ ĐỘNG)\n\n"
@@ -1858,6 +2170,8 @@ class AIDeveloperHarness:
                 print(enriched_task_description)
             
         self.pipeline_context["enriched_task"] = enriched_task_description
+        self.save_checkpoint("Enricher")
+        self.log_event("phase_complete", {"phase": "Enricher", "enriched": bool(enriched_task_description != task_description)})
         
         # --- CHẠY PHA 1: PLANNING ---
         self.current_plan = ""
@@ -1873,6 +2187,9 @@ class AIDeveloperHarness:
 
         if not self.current_plan:
             self.current_plan = plan
+        
+        self.save_checkpoint("Planner")
+        self.log_event("phase_complete", {"phase": "Planner", "plan_length": len(self.current_plan)})
 
         # --- CHẠY PHA 2: TEST WRITING ---
         # Fix 7: Build structured context từ pipeline_context
@@ -1890,6 +2207,9 @@ class AIDeveloperHarness:
         if not test_report:
             print("❌ Pha viết test thất bại hoặc bị ngắt sớm. Dừng pipeline.")
             return
+        
+        self.save_checkpoint("TestWriter")
+        self.log_event("phase_complete", {"phase": "TestWriter", "test_files": len(self.test_writer_files)})
 
         # --- CHẠY PHA 3 & 4: LẬP TRÌNH VÀ THẨM ĐỊNH ĐỐI NGHỊCH ---
         # Fix 7: Build structured context cho Developer
@@ -1910,6 +2230,8 @@ class AIDeveloperHarness:
             return
             
         print("\n🎉 [PIPELINE SUCCESS]: Đã hoàn thành tác vụ xuất sắc thông qua Spec-Driven Development!")
+        self.log_event("pipeline_complete", {"status": "SUCCESS", "global_iterations": self.global_iteration_count})
+        self.clear_checkpoint()  # Xóa checkpoint sau khi pipeline thành công
         
         # Post-pipeline: Cập nhật Test Matrix với các test files mới
         all_test_files = list(set(self.pipeline_context.get("test_files_created", []) + self.test_writer_files))

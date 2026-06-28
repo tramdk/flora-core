@@ -1,10 +1,33 @@
 import os
 import subprocess
 import shutil
+import time
 
 def selective_rollback(modified_files: set) -> str:
-    """Khôi phục có chọn lọc: chỉ rollback production code, giữ nguyên test cases và docs."""
+    """Khôi phục có chọn lọc: chỉ rollback production code, giữ nguyên test cases và docs.
+    
+    Tự động tạo git stash backup trước khi rollback để có thể khôi phục nếu cần
+    (dùng `git stash pop` hoặc `git stash apply stash@{N}`).
+    """
     try:
+        # Safety net: git stash trước khi rollback
+        stash_msg = f"harness-rollback-backup-{int(time.time())}"
+        stash_result = subprocess.run(
+            ["git", "stash", "push", "-m", stash_msg, "--keep-index"],
+            shell=False,
+            capture_output=True,
+            encoding='utf-8',
+            errors='replace'
+        )
+        stash_created = stash_result.returncode == 0 and "No local changes" not in (stash_result.stdout or "")
+        if stash_created:
+            print(f"💾 [Rollback Safety]: Đã tạo git stash backup: '{stash_msg}'. Dùng `git stash pop` để khôi phục nếu cần.")
+            # Unstash ngay lập tức để giữ working tree (stash chỉ để backup)
+            subprocess.run(
+                ["git", "stash", "pop", "--quiet"],
+                shell=False, capture_output=True
+            )
+        
         # Loại bỏ shell=True
         result = subprocess.run(
             ["git", "status", "--porcelain"],

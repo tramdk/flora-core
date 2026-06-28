@@ -103,10 +103,26 @@ def patch_source(file_path: str, search_text: str, replace_text: str) -> str:
             )
         
         if occurrences > 1:
+            # Vẫn thực hiện patch lần xuất hiện ĐẦU TIÊN, kèm cảnh báo
+            new_content = content.replace(search_text, replace_text, 1)
+            
+            # Xử lý thuộc tính Read-Only
+            if os.path.exists(abs_path):
+                try:
+                    import stat
+                    current_mode = os.stat(abs_path).st_mode
+                    if not (current_mode & stat.S_IWRITE):
+                        os.chmod(abs_path, current_mode | stat.S_IWRITE)
+                except Exception:
+                    pass
+            
+            with open(abs_path, 'w', encoding='utf-8') as f:
+                f.write(new_content)
+            
             return (
-                f"Cảnh báo: Tìm thấy {occurrences} lần xuất hiện của đoạn text trong '{file_path}'.\n"
-                f"patch_source chỉ thay thế lần xuất hiện ĐẦU TIÊN.\n"
-                f"Nếu muốn thay thế tất cả, gọi patch_source nhiều lần hoặc dùng write_source."
+                f"Patch thành công (lần xuất hiện ĐẦU TIÊN). "
+                f"⚠️ Còn {occurrences - 1} lần xuất hiện khác chưa được thay thế trong '{file_path}'. "
+                f"Gọi patch_source thêm lần nữa nếu cần thay thế tiếp."
             )
         
         # Thực hiện thay thế (chỉ lần xuất hiện đầu tiên)

@@ -108,45 +108,51 @@ def build_cache_contents(root_dir: str, policy_content: str, lessons_content: st
     total_chars = sum(len(c) for c in contents)
     target_chars = 135000  # Đảm bảo chắc chắn vượt 32,768 tokens
     if total_chars < target_chars:
-        padding_needed = target_chars - total_chars
-        smart_guides = [
-            "// ===========================================================================",
-            "// C# 12+ / .NET 9 ENTERPRISE CODING GUIDELINES & BEST PRACTICES",
-            "// ===========================================================================",
-            "// 1. PRIMARY CONSTRUCTORS (C# 12+):",
-            "//    - Bắt buộc dùng Primary Constructor cho tất cả dependencies injection.",
-            "//    - Luôn viết ThrowIfNull check tại vị trí khởi tạo thuộc tính readonly private.",
-            "//    - Ví dụ: public class ProductService(IProductRepository repository) {",
-            "//          private readonly IProductRepository _repository = repository ?? throw new ArgumentNullException(nameof(repository));",
-            "//      }",
-            "// 2. CLEAN ARCHITECTURE PURITY:",
-            "//    - Domain layer không có bất kỳ dependency nào khác ngoài System.",
-            "//    - Application layer chỉ chứa logic nghiệp vụ và interfaces, không phụ thuộc Infrastructure.",
-            "//    - Infrastructure layer chứa EF Core DbContext, Repositories implementations.",
-            "// 3. CQRS PATTERN WITH MEDIATR:",
-            "//    - Đảm bảo Commands và Queries là immutable records.",
-            "//    - Command handler độc lập, viết chung file với Command definition.",
-            "// 4. RESOURCE MANAGER & LOCALIZATION:",
-            "//    - Không hardcode chuỗi thông báo lỗi. Sử dụng ResourceManager để đọc từ file .resx.",
-            "// 5. ASYNCHRONOUS PROGRAMMING:",
-            "//    - Luôn dùng async/await cho I/O tasks. Luôn truyền CancellationToken.",
-            "//    - Không bao giờ dùng .Result hoặc .Wait() để tránh deadlock.",
-            "// 6. OUTBOX PATTERN FOR RELIABILITY:",
-            "//    - Ghi nhận OutboxMessage trong cùng một db transaction với thực thể chính.",
-            "//    - Background processor sẽ xử lý OutboxMessage bất đồng bộ đáng tin cậy.",
-            "// 7. REQUEST IDEMPOTENCY & INBOX PATTERN:",
-            "//    - Sử dụng IdempotencyKey qua IDistributedCache để ngăn chặn trùng lặp API requests.",
-            "//    - Sử dụng InboxMessage trong event consumer để ngăn chặn trùng lặp event processing.",
-            "// ==========================================================================="
-        ]
-        padding_str = "\n" + "\n".join(smart_guides) + "\n"
-        while total_chars + len(padding_str) < target_chars:
-            padding_str += "\n" + "\n".join(smart_guides) + "\n"
+        # Ưu tiên: đọc test files vào cache (hữu ích hơn padding vô nghĩa)
+        test_dir = os.path.join(root_dir, "FloraCore.Tests")
+        if os.path.isdir(test_dir):
+            test_contents = []
+            for test_root, test_dirs, test_files in os.walk(test_dir):
+                # Loại bỏ bin/obj
+                test_dirs[:] = [d for d in test_dirs if d not in {"bin", "obj", "__pycache__"}]
+                for tf in sorted(test_files):
+                    if tf.endswith(".cs") and total_chars < target_chars:
+                        tf_path = os.path.join(test_root, tf)
+                        try:
+                            with open(tf_path, 'r', encoding='utf-8') as fh:
+                                tc = fh.read()
+                                entry = f"TEST FILE: {os.path.relpath(tf_path, root_dir)}\n{tc}"
+                                test_contents.append(entry)
+                                total_chars += len(entry)
+                        except Exception:
+                            pass
+            if test_contents:
+                contents.append("--- TEST FILES (Reference cho Agent) ---\n" + "\n\n".join(test_contents))
         
-        # Cắt bớt phần dư thừa để khớp chính xác target_chars
-        if total_chars + len(padding_str) > target_chars:
-            excess = (total_chars + len(padding_str)) - target_chars
-            padding_str = padding_str[:-excess] if excess < len(padding_str) else ""
-        contents.append(padding_str)
+        # Fallback: nếu test files vẫn chưa đủ, pad thêm guidelines (nhưng chỉ 1 lần, không lặp)
+        if total_chars < target_chars:
+            smart_guides = [
+                "// ===========================================================================",
+                "// C# 12+ / .NET 9 ENTERPRISE CODING GUIDELINES & BEST PRACTICES",
+                "// ===========================================================================",
+                "// 1. PRIMARY CONSTRUCTORS (C# 12+):",
+                "//    - Bắt buộc dùng Primary Constructor cho tất cả dependencies injection.",
+                "//    - Luôn viết ThrowIfNull check tại vị trí khởi tạo thuộc tính readonly private.",
+                "// 2. CLEAN ARCHITECTURE PURITY:",
+                "//    - Domain layer không có bất kỳ dependency nào khác ngoài System.",
+                "//    - Application layer chỉ chứa logic nghiệp vụ và interfaces.",
+                "// 3. CQRS PATTERN WITH MEDIATR:",
+                "//    - Đảm bảo Commands và Queries là immutable records.",
+                "// 4. ASYNCHRONOUS PROGRAMMING:",
+                "//    - Luôn dùng async/await cho I/O tasks. Luôn truyền CancellationToken.",
+                "// ==========================================================================="
+            ]
+            padding_str = "\n" + "\n".join(smart_guides) + "\n"
+            # Lặp lại nếu cần nhưng giới hạn tối đa 3 lần
+            repeat_count = 0
+            while total_chars + len(padding_str) < target_chars and repeat_count < 3:
+                contents.append(padding_str)
+                total_chars += len(padding_str)
+                repeat_count += 1
         
     return contents
