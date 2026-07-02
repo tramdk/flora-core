@@ -859,9 +859,14 @@ class AIDeveloperHarness:
 
     def run_agent_loop(self, role: str, system_instruction: str, initial_context: str, on_finish_callback) -> str:
         """Thực thi vòng lặp ReAct (Suy nghĩ -> Hành động -> Quan sát) cho một Agent cụ thể, sử dụng Native Function Calling."""
-        print(f"\n=============================================================")
-        print(f"🤖 KÍCH HOẠT AGENT: [{role.upper()}]")
-        print(f"=============================================================")
+        _phase_map = {"planner": 1, "enricher": 0, "testwriter": 2, "developer": 3, "evaluator": 5}
+        _phase_num = _phase_map.get(role.lower(), 4)
+        if hasattr(self, "send_section"):
+            self.send_section(_phase_num, role.capitalize())
+        else:
+            print(f"\n=============================================================")
+            print(f"🤖 KÍCH HOẠT AGENT: [{role.upper()}]")
+            print(f"=============================================================")
         
         harness_dir = os.path.dirname(os.path.abspath(__file__))
         scripts_dir = os.path.dirname(harness_dir)
@@ -1315,11 +1320,12 @@ class AIDeveloperHarness:
                                 artifacts=[filepath]
                             )
                         else:
-                            print(f"\n==========================================")
-                            print(f"📄 PREVIEW FILE CẦN GHI: '{filepath}' ({role})")
-                            print(f"==========================================")
-                            print(content[:500] + ("\n...[còn tiếp]..." if len(content) > 500 else ""))
-                            print(f"==========================================\n")
+                            if not hasattr(self, "send_log"):
+                                print(f"\n==========================================")
+                                print(f"📄 PREVIEW FILE: '{filepath}' ({role})")
+                                print(f"==========================================")
+                                print(content[:500] + ("\n...[còn tiếp]..." if len(content) > 500 else ""))
+                                print(f"==========================================\n")
                             
                             if self.ask_approval(f"Đồng ý cho Agent ghi file: '{filepath}'?"):
                                 res = write_source_file(filepath, content)
@@ -1639,10 +1645,13 @@ class AIDeveloperHarness:
 
     def execute_pipeline(self, task_description: str, skip_enricher: bool = False):
         """Thực thi toàn bộ quy trình: Lập Plan -> Viết Test -> Lập trình -> Đánh giá đối nghịch."""
-        print(f"\n=============================================================")
-        print(f"🚀 KHỞI ĐỘNG SPEC-DRIVEN PIPELINE CHO TÁC VỤ:")
-        print(f"   👉 '{task_description}'")
-        print(f"=============================================================")
+        if hasattr(self, "send_log"):
+            self.send_log(f"🚀 Bắt đầu pipeline\n👉 Tác vụ: {task_description}")
+        else:
+            print(f"\n=============================================================")
+            print(f"🚀 KHỞI ĐỘNG SPEC-DRIVEN PIPELINE CHO TÁC VỤ:")
+            print(f"   👉 '{task_description}'")
+            print(f"=============================================================")
         
         harness_dir = os.path.dirname(os.path.abspath(__file__))
         scripts_dir = os.path.dirname(harness_dir)
@@ -1804,11 +1813,15 @@ class AIDeveloperHarness:
 
         # --- CALLBACK PHA 1: PLANNING ---
         def on_planner_finish(plan_content: str):
-            print("\n=============================================================")
-            print("📋 BẢN KẾ HOẠCH THỰC THI (PROPOSED EXECUTION PLAN):")
-            print("=============================================================")
-            print(plan_content)
-            print("=============================================================\n")
+            # ── Thông báo phase ──────────────────────────────────────────
+            if hasattr(self, "send_section"):
+                self.send_section(1, "Planner — Bản kế hoạch thực thi")
+            else:
+                print("\n=============================================================")
+                print("📋 BẢN KẾ HOẠCH THỰC THI (PROPOSED EXECUTION PLAN):")
+                print("=============================================================")
+                print(plan_content)
+                print("=============================================================\n")
             
             plan_dir = os.path.join(root_dir, "docs", "plans")
             os.makedirs(plan_dir, exist_ok=True)
@@ -1834,7 +1847,7 @@ class AIDeveloperHarness:
                     print(f"💾 Đã lưu kế hoạch vào: docs/plans/execution_plan.md")
                 except Exception as e:
                     print(f"⚠️ Không thể lưu file kế hoạch: {e}")
-                
+
             production_files = []
             path_pattern = r"(?:Application/Features/\S+\.cs|Infrastructure/\S+\.cs|Controllers/\S+\.cs|Domain/\S+\.cs)"
             matches = re.findall(path_pattern, plan_content)
@@ -1847,11 +1860,26 @@ class AIDeveloperHarness:
             self.pipeline_context["files_to_implement"] = self.planner_production_files
             self.pipeline_context["approved_plan"] = plan_content
             self.pipeline_context["risk_lane"] = risk_lane
-            print(f"🔑 [Harness]: Test filter keyword: '{self.test_filter_keyword}'")
-            if production_files:
-                print(f"📋 [Harness]: Phát hiện {len(production_files)} file production code cần tạo trong kế hoạch: {', '.join(production_files)}")
-                
+
+            # ── Gửi file kế hoạch + tóm tắt lên Telegram ──────────────────
+            if hasattr(self, "send_plan"):
+                # Tạo tóm tắt ngắn gọn
+                files_summary = ""
+                if production_files:
+                    files_summary = "\n\nFile cần tạo:\n" + "\n".join(f"  • {f}" for f in production_files)
+                caption = (
+                    f"📋 Bản kế hoạch thực thi\n"
+                    f"Test keyword: {self.test_filter_keyword}"
+                    f"{files_summary}"
+                )
+                self.send_plan(plan_content, "execution_plan.txt", caption)
+            else:
+                print(f"🔑 [Harness]: Test filter keyword: '{self.test_filter_keyword}'")
+                if production_files:
+                    print(f"📋 [Harness]: Phát hiện {len(production_files)} file production code cần tạo trong kế hoạch: {', '.join(production_files)}")
+
             approved = self.ask_approval("Bạn có đồng ý phê duyệt Bản kế hoạch thực thi này không?", force_ask=True)
+
             if approved:
                 # Đọc lại bản kế hoạch từ ổ đĩa đề phòng trường hợp lập trình viên chỉnh sửa thủ công
                 try:
@@ -1894,11 +1922,16 @@ class AIDeveloperHarness:
 
         # --- CALLBACK PHA 2: TEST WRITING ---
         def on_testwriter_finish(test_report: str):
-            print("\n=============================================================")
-            print("🧪 THÔNG BÁO TỪ TESTWRITER AGENT:")
-            print("=============================================================")
-            print(test_report)
-            print("=============================================================\n")
+            if hasattr(self, "send_section"):
+                self.send_section(2, "TestWriter — Bộ Test Cases")
+                self.send_plan(test_report, "test_report.txt", "🧪 Báo cáo TestWriter — xem và phê duyệt bên dưới.")
+            else:
+                print("\n=============================================================")
+                print("🧪 THÔNG BÁO TỪ TESTWRITER AGENT:")
+                print("=============================================================")
+                print(test_report)
+                print("=============================================================\n")
+
             
             test_file_pattern = r"FloraCore\.Tests/\S+\.cs|FloraCore\.Tests\\\S+\.cs"
             found_test_files = re.findall(test_file_pattern, test_report)
@@ -1983,11 +2016,14 @@ class AIDeveloperHarness:
 
         # --- CALLBACK PHA 3 & 4: IMPLEMENTATION & EVALUATION ---
         def on_developer_finish(dev_report: str):
-            print("\n=============================================================")
-            print("💻 THÔNG BÁO TỪ DEVELOPER AGENT:")
-            print("=============================================================")
-            print(dev_report)
-            print("=============================================================\n")
+            if hasattr(self, "send_section"):
+                self.send_section(3, "Developer — Hoàn thành implementation")
+            else:
+                print("\n=============================================================")
+                print("💻 THÔNG BÁO TỪ DEVELOPER AGENT:")
+                print("=============================================================")
+                print(dev_report)
+                print("=============================================================\n")
             
             # Luôn biên dịch và chạy kiểm thử thực tế trên đĩa cứng để xác thực, không tin vào văn bản báo cáo
             print("⚙️ Chạy build hệ thống (production code)...")

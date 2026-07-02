@@ -1,7 +1,7 @@
 import asyncio
 import queue
 import subprocess
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 from telegram_bot.harness_bridge import (
@@ -11,11 +11,39 @@ from telegram_bot.harness_bridge import (
     stream_output,
 )
 
+async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🦊 **Chào đại ca! Em là Harness Bot xịn xò đây.**\n\n"
+        "Em giúp anh điều khiển AI Developer Harness trực tiếp qua Telegram.\n"
+        "👉 Gõ `/help` để xem danh sách lệnh hoặc `/flags` để xem các tùy chọn chạy.\n"
+        "🚀 Thử ngay: `/run --mock Kiểm tra dự án`"
+    )
+
+async def cmd_flags(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("--mock", callback_data="flag_mock"),
+            InlineKeyboardButton("--auto-approve", callback_data="flag_auto"),
+            InlineKeyboardButton("--skip-enricher", callback_data="flag_skip"),
+        ]
+    ])
+    await update.message.reply_text(
+        "🛠 **Danh sách Flags cho lệnh `/run`:**\n\n"
+        "Bấm vào nút bên dưới để copy flag hoặc xem chi tiết:",
+        reply_markup=keyboard
+    )
+
 async def cmd_run(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.chat_data.get("running"):
         await update.message.reply_text(
             "⚠️ Đang có pipeline chạy. Dùng /cancel để hủy trước."
         )
+        return
+
+    text = update.message.text
+    # Nếu người dùng gõ -- mà không có task, gợi ý flags
+    if text.strip().startswith("/run --") and len(context.args) == 0:
+        await cmd_flags(update, context)
         return
 
     args = list(context.args)
@@ -135,9 +163,11 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🤖 **Harness Bot — Danh sách lệnh**\n\n"
         "**🚀 Pipeline:**\n"
-        "`/run [--mock] [--auto-approve] <nhiệm vụ>` — Chạy pipeline AI\n"
+        "`/run [--flags] <nhiệm vụ>` — Chạy pipeline AI\n"
+        "  👉 Gõ `/flags` để xem các flag hỗ trợ\n"
         "  `--mock`          chế độ giả lập\n"
         "  `--auto-approve`  tự động phê duyệt\n"
+        "  `--skip-enricher`   bỏ qua làm giàu prompt\n"
         "`/cancel` — Hủy pipeline đang chạy\n"
         "`/status` — Xem trạng thái hiện tại\n\n"
         "**⚡ Skills:**\n"
@@ -150,6 +180,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "`/git <lệnh>` — Chạy lệnh git\n\n"
         "**Ví dụ:**\n"
         "`/run --mock Thêm entity PostCategory`\n"
+        "`/flags` ➡️ chọn flag ➡️ gõ lệnh\n"
         "`/skill optimizing-ef-core-queries`\n"
         "`/git log --oneline -5`"
     )

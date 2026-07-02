@@ -30,11 +30,13 @@ if env_path.exists():
     except ImportError:
         pass
 
-from telegram import Update
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler
+from telegram import Update, Bot
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
+
 
 # Import modular handlers
-from telegram_bot.handlers import cmd_run, cmd_cancel, cmd_status, cmd_git, cmd_help
+from telegram_bot.handlers import cmd_run, cmd_cancel, cmd_status, cmd_git, cmd_help, cmd_start, cmd_flags
+
 from telegram_bot.skill_handlers import cmd_skill, cmd_skills, cmd_config, cmd_log
 from telegram_bot.callback import callback_handler
 
@@ -46,8 +48,31 @@ def main():
         print("   TELEGRAM_BOT_TOKEN=123456:ABC-DEF...")
         sys.exit(1)
 
-    app = Application.builder().token(token).build()
+    async def post_init(application: Application):
+        """Đăng ký menu commands với Telegram server sau khi bot khởi động."""
+        commands = [
+            ("start", "Bắt đầu và chào hỏi"),
+            ("run", "Chạy pipeline AI (Ví dụ: /run --mock Fix bug)"),
+            ("flags", "Xem danh sách flags hỗ trợ"),
+            ("status", "Kiểm tra trạng thái bot"),
+            ("cancel", "Hủy pipeline đang chạy"),
+            ("skill", "Kích hoạt một skill cụ thể"),
+            ("skills", "Liệt kê tất cả skills"),
+            ("git", "Chạy lệnh git (Ví dụ: /git status)"),
+            ("help", "Hướng dẫn sử dụng"),
+        ]
+        await application.bot.set_my_commands(commands)
+        logger.info("✅ Bot commands registered successfully.")
+
+    app = Application.builder().token(token).post_init(post_init).build()
+
+
+    
+    app.add_handler(CommandHandler("start", cmd_start))
+
+    app.add_handler(CommandHandler("flags", cmd_flags))
     app.add_handler(CommandHandler("run", cmd_run))
+
     app.add_handler(CommandHandler("cancel", cmd_cancel))
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("skill", cmd_skill))
@@ -56,11 +81,14 @@ def main():
     app.add_handler(CommandHandler("log", cmd_log))
     app.add_handler(CommandHandler("git", cmd_git))
     app.add_handler(CommandHandler("help", cmd_help))
+
+    # CallbackQueryHandler xử lý tất cả inline keyboard button presses (approve, flags, skills)
     app.add_handler(CallbackQueryHandler(callback_handler))
+
 
     print("🤖 Telegram Harness Bot đang chạy (long-polling)...")
     print(f"   Nhắn /help cho bot trên Telegram để bắt đầu.")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    app.run_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     main()
