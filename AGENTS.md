@@ -25,6 +25,10 @@
 
 - Run `codegraph sync` before handoff.
 
+### Token Optimization
+
+- **Always Active**: Always apply the rules of `caveman` (full) and `ponytail` (full) skills by default for all responses to optimize token consumption and minimize output length.
+
 ---
 
 ## C#/.NET RULES (Apply ONLY when the task involves `.cs` files or .NET projects)
